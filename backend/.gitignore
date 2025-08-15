@@ -1,0 +1,71 @@
+# Environment variables
+# Contains secrets and local configuration. DO NOT COMMIT.
+.env
+.env.*
+!/.env.example
+
+# Python
+# ----------------------------------------------------------------
+# Virtual environments
+.venv/
+venv/
+
+# Cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Frontend (React Native / Expo / Node)
+# ----------------------------------------------------------------
+# Node dependencies
+node_modules/
+
+# Expo specific
+.expo/
+web-build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE / Editor configuration
+# ----------------------------------------------------------------
+.vscode/
+.idea/
+
+# Operating System generated files
+# ----------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+# ----------------------------------------------------------------
+*.log
+logs/

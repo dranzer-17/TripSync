@@ -1,13 +1,24 @@
-// src/app/(auth)/_layout.tsx
+// src/app/_layout.tsx
 
+import React from 'react';
 import { Stack } from 'expo-router';
+import { PaperProvider } from 'react-native-paper';
+import { StatusBar } from 'expo-status-bar';
+import { theme } from '../../constants/theme';
 
-export default function AuthLayout() {
+export default function RootLayout() {
   return (
-    <Stack>
-      {/* Define the screens within the (auth) group */}
-      <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="register" options={{ headerShown: false }} />
-    </Stack>
+    <PaperProvider theme={theme}>
+      <StatusBar style="light" />
+      
+      {/* This Stack is now the single source of truth for navigation */}
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* We define all screens here, letting the layouts in each group handle their children */}
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(main)" />
+        {/* The index screen is just a redirector, it doesn't need a UI */}
+        <Stack.Screen name="index" /> 
+      </Stack>
+    </PaperProvider>
   );
 }

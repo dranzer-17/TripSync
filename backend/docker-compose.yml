@@ -1,7 +1,3 @@
-# TripSync/backend/docker-compose.yml
-
-version: '3.8'
-
 services:
   # Service 1: The PostgreSQL Database
   db:
@@ -9,9 +5,15 @@ services:
     container_name: tripsync_db
     restart: unless-stopped
     env_file:
-      - .env  # This line is all you need. It does the whole job.
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Remove the custom auth settings temporarily
+      # POSTGRES_INITDB_ARGS: "--auth-host=md5 --auth-local=md5"
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -23,16 +25,14 @@ services:
     container_name: tripsync_adminer
     restart: unless-stopped
     ports:
-      - "8080:8080"  # Map port 8080 on your host to port 8080 in the container
+      - "8080:8080"
     depends_on:
-      - db  # This ensures the database starts before Adminer does
+      - db
     networks:
       - tripsync_network
 
-# Define the network that allows containers to communicate with each other
 networks:
   tripsync_network:
 
-# Define the volume to persist database data
 volumes:
   postgres_data:

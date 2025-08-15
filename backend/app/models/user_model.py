@@ -1,0 +1,40 @@
+# backend/app/models/user_model.py
+
+# --- REMOVE THIS IMPORT ---
+# import uuid
+
+# --- CHANGE THESE IMPORTS ---
+from sqlalchemy import Column, String, ForeignKey, DateTime, Integer # Add Integer
+from sqlalchemy.orm import relationship
+# --- REMOVE THIS IMPORT ---
+# from sqlalchemy.dialects.postgresql import UUID
+from datetime import datetime
+
+from app.db.database import Base
+
+class College(Base):
+    __tablename__ = "colleges"
+
+    # --- CHANGE THIS BLOCK ---
+    id = Column(Integer, primary_key=True, index=True)
+    # -------------------------
+    name = Column(String, unique=True, index=True, nullable=False)
+    users = relationship("User", back_populates="college")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    # --- CHANGE THIS BLOCK ---
+    id = Column(Integer, primary_key=True, index=True)
+    # -------------------------
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    full_name = Column(String, index=True)
+    
+    # --- CHANGE THIS BLOCK ---
+    college_id = Column(Integer, ForeignKey("colleges.id"))
+    # -------------------------
+    
+    college = relationship("College", back_populates="users")
+    created_at = Column(DateTime, default=datetime.utcnow)

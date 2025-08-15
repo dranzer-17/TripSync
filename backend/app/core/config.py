@@ -11,5 +11,7 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
     ALLOW_ORIGINS: str
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str
 
 settings = Settings()

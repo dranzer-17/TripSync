@@ -3,8 +3,9 @@ from fastapi import FastAPI
 from app.router import router
 from app.db.database import Base, engine
 from contextlib import asynccontextmanager
-from app.models import user_models
-
+from app.models import user_model
+from dotenv import load_dotenv
+load_dotenv()
 # This function will create the database tables.
 def create_db_and_tables():
     Base.metadata.create_all(bind=engine)

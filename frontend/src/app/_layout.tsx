@@ -11,8 +11,9 @@ export default function RootLayout() {
     <PaperProvider theme={theme}>
       <StatusBar style="light" />
       
-      {/* This Stack now just manages the groups, not individual screens */}
+      {/* This Stack manages the main app flow */}
       <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(main)" />
       </Stack>

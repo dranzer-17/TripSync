@@ -25,16 +25,16 @@ class College(Base):
 class User(Base):
     __tablename__ = "users"
 
-    # --- CHANGE THIS BLOCK ---
     id = Column(Integer, primary_key=True, index=True)
-    # -------------------------
+
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, index=True)
     
-    # --- CHANGE THIS BLOCK ---
+    profile_image_url = Column(String, nullable=True)
+    phone_number = Column(String, nullable=True)
     college_id = Column(Integer, ForeignKey("colleges.id"))
-    # -------------------------
+
     
     college = relationship("College", back_populates="users")
     created_at = Column(DateTime, default=datetime.utcnow)

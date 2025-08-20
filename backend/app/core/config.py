@@ -17,5 +17,6 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     # -----------------------------
+    OLA_MAPS_API_KEY: str
 
 settings = Settings()

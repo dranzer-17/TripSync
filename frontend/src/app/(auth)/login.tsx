@@ -6,9 +6,11 @@ import { Text, TextInput, Button } from 'react-native-paper';
 import { Link, useRouter } from 'expo-router';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import apiClient from '../../services/api'; // We'll use the base client
+import { useAuth } from '../../context/AuthContext';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
 
   // State for input fields
   const [email, setEmail] = useState('');
@@ -39,12 +41,7 @@ export default function LoginScreen() {
       const accessToken = response.data.access_token;
       console.log('Login successful, token:', accessToken);
 
-      // In a real app, you would save this token securely (e.g., using Expo SecureStore)
-      // For now, we will just show a success message and navigate.
-      Alert.alert('Login Successful', 'You are now logged in!');
-      
-      // Navigate to the main part of the app
-      router.replace('../(main)/home'); 
+      await signIn(accessToken);
 
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || 'Login failed. Please check your credentials.';

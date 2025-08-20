@@ -5,6 +5,8 @@ from app.db.database import Base, engine
 from contextlib import asynccontextmanager
 from app.models import user_model
 from dotenv import load_dotenv
+from app.models import user_model, pooling_model
+from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 # This function will create the database tables.
 def create_db_and_tables():
@@ -23,7 +25,13 @@ async def lifespan(app: FastAPI):
 # Create the FastAPI app instance with the lifespan event handler
 app = FastAPI(title="TripSync API", lifespan=lifespan)
 
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
 # Include the main router
 app.include_router(router, prefix="/api")
 

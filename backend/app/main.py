@@ -7,6 +7,7 @@ from app.models import user_model
 from dotenv import load_dotenv
 from app.models import user_model, pooling_model
 from fastapi.middleware.cors import CORSMiddleware
+from app.models import user_model, pooling_model, profile_model
 load_dotenv()
 # This function will create the database tables.
 def create_db_and_tables():

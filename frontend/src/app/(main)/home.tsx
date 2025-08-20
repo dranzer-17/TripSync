@@ -11,145 +11,114 @@ import { usePoolingSocket } from '../../hooks/usePoolingSocket';
 
 // --- API Service Functions ---
 import { createRequestAndFindMatches, MatchedUser } from '../../services/poolingService';
+// We don't need Autocomplete types here yet, simplifying the import
 import { getAddressFromCoords, getPlaceDetails, AutocompleteSuggestion, PlaceDetails } from '../../services/locationService';
 
 // --- Custom UI Components ---
 import IdlePoolingView from '../../components/pooling/IdlePoolingView';
 import ActivePoolingView from '../../components/pooling/ActivePoolingView';
-import SearchingView from '../../components/pooling/SearchingView';
+import SearchingView from '../../components/pooling/SearchingView'; // <-- IMPORT
 import MatchedUserCard from '../../components/pooling/MatchedUserCard';
 import ScreenWrapper from '../../components/ScreenWrapper';
 
-// Define the possible states for our screen's UI for clean state management
+// Define the possible states for our screen's UI
 type ScreenState = 'idle' | 'active_search' | 'searching' | 'results';
 
 export default function PoolingScreen() {
-  // --- Hooks ---
-  const { token } = useAuth(); // Get the user's authentication token
-  const { location, errorMsg, getUserLocation } = useLocation(); // Hook for GPS functionality
-  const { isConnected, match, error: wsError, connect, disconnect } = usePoolingSocket(token); // Hook for WebSocket
+  const { token } = useAuth();
+  const { location, errorMsg, getUserLocation } = useLocation();
+  const { match, connect, disconnect } = usePoolingSocket(token);
 
-  // --- State Management ---
   const [screenState, setScreenState] = useState<ScreenState>('idle');
   const [startLocationName, setStartLocationName] = useState('');
+  const [destination, setDestination] = useState(''); // Keep this for now
   const [selectedDestination, setSelectedDestination] = useState<PlaceDetails | null>(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [matches, setMatches] = useState<MatchedUser[]>([]);
-  
-  // --- Effect to handle incoming matches from the WebSocket ---
+
   useEffect(() => {
-    // This effect runs whenever the 'match' state from our WebSocket hook changes.
     if (match) {
-      // A match was found and pushed by the server!
-      console.log('WebSocket received a match:', match);
-      // Add the new match to our existing list of matches
-      setMatches(prevMatches => [...prevMatches, match]);
-      setScreenState('results'); // Switch the UI to the results view
-      disconnect(); // Disconnect the socket as we've found a match and our job is done
+      setMatches(prev => [...prev, match]);
+      setScreenState('results');
+      disconnect();
     }
-  }, [match]); // Dependency array: only re-run when 'match' changes
+  }, [match]);
 
-  // --- Handler Functions ---
-
-  /**
-   * Called when the user presses the initial "Find Nearby Poolers" button.
-   */
   const handleFindPoolersPress = async () => {
     setIsLoadingLocation(true);
-    const userLocation = await getUserLocation(); // Fetch fresh GPS coordinates
-    
+    const userLocation = await getUserLocation();
     if (userLocation) {
       const address = await getAddressFromCoords(userLocation.coords);
       setStartLocationName(address);
-      setScreenState('active_search'); // Move to the search form view
+      setScreenState('active_search');
     } else if (errorMsg) {
       Alert.alert('Location Error', errorMsg);
     }
     setIsLoadingLocation(false);
   };
 
-  /**
-   * Called by the AutocompleteInput when a user selects a destination from the list.
-   */
-  const handlePlaceSelected = async (place: AutocompleteSuggestion) => {
-    console.log('Selected Autocomplete Suggestion:', place);
-    const details = await getPlaceDetails(place.place_id);
-    if (details) {
-      console.log('Fetched Place Details:', details);
-      setSelectedDestination(details); // Store the full destination object
-    } else {
-      Alert.alert('Error', 'Could not fetch details for the selected location.');
-    }
+  // THIS IS A TEMPORARY FUNCTION UNTIL WE ADD AUTOCOMPLETE
+  const handlePlaceSelected = (place: AutocompleteSuggestion) => {
+    // This will be replaced when we add the real autocomplete component
+    setDestination(place.description);
   };
   
-  /**
-   * Called when the user submits their search.
-   * Connects to the WebSocket and sends the initial HTTP request.
-   */
   const handleSearchSubmit = async () => {
-    if (!location?.coords || !selectedDestination?.geometry?.location || !token) {
-      Alert.alert('Error', 'Please select a valid destination.');
+    // For now, we simulate a selected destination
+    if (!location?.coords || !destination || !token) {
+      Alert.alert('Error', 'Please enter a destination.');
       return;
     }
 
-    setScreenState('searching'); // Show the "Searching..." view
-    connect(); // Initiate the WebSocket connection to listen for future matches
+    setScreenState('searching'); // <-- THIS IS THE KEY CHANGE
+    connect();
 
     try {
-      const destinationCoords = selectedDestination.geometry.location;
-      // This HTTP call starts the request and finds any IMMEDIATE matches
+      // We will use a placeholder destination until autocomplete is wired up
+      const placeholderDestination = { lat: 19.1073, lng: 72.8371 };
+
       const response = await createRequestAndFindMatches(token, {
         start_latitude: location.coords.latitude,
         start_longitude: location.coords.longitude,
-        destination_latitude: destinationCoords.lat,
-        destination_longitude: destinationCoords.lng,
-        destination_name: selectedDestination.name,
+        destination_latitude: placeholderDestination.lat,
+        destination_longitude: placeholderDestination.lng,
+        destination_name: destination,
       });
 
       if (response.matches.length > 0) {
-        // An immediate match was found! No need to wait.
         setMatches(response.matches);
         setScreenState('results');
-        disconnect(); // Disconnect as the search is over
+        disconnect();
       }
-      // If no immediate matches, we stay on the 'searching' screen.
-      // The WebSocket is now listening in the background for another user to create a match.
-
+      // If no immediate match, we stay in the 'searching' state
     } catch (error: any) {
       Alert.alert('Search Failed', error.message);
       setScreenState('active_search');
-      disconnect(); // Disconnect on failure
+      disconnect();
     }
   };
   
-  /**
-   * Called from the "Searching..." view if the user cancels.
-   */
   const handleCancelSearch = () => {
-    disconnect(); // Disconnect the WebSocket
-    // TODO: Call backend DELETE endpoint to cancel the PoolingRequest on the server
-    console.log('Search cancelled by user.');
-    setScreenState('idle'); // Reset the UI to the initial state
+    disconnect();
+    setScreenState('idle');
   };
   
-  // --- Conditional Rendering Logic ---
+  // --- Conditional Rendering ---
   
   if (screenState === 'idle') {
     return <IdlePoolingView onFindPoolers={handleFindPoolersPress} isLoading={isLoadingLocation} />;
   }
 
   if (screenState === 'active_search') {
+    // We are passing props to the OLD ActivePoolingView from your working code
     return (
       <ActivePoolingView
         startLocation={startLocationName}
         onStartLocationChange={setStartLocationName}
-        onPlaceSelected={handlePlaceSelected}
+        onPlaceSelected={handlePlaceSelected} // This won't do anything yet
         onSearch={handleSearchSubmit}
-        onGoToCollege={() => {
-          // TODO: Implement "Go to College" logic
-          console.log('Go to College pressed');
-        }}
-        isSearchDisabled={!selectedDestination}
+        onGoToCollege={() => setDestination('College')}
+        isSearchDisabled={!destination} // Simple check for now
       />
     );
   }
@@ -168,7 +137,7 @@ export default function PoolingScreen() {
           data={matches}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => <MatchedUserCard user={item} />}
-          ListEmptyComponent={<Text>No active poolers were found nearby.</Text>}
+          ListEmptyComponent={<Text>No active poolers found nearby.</Text>}
         />
         <Button mode="contained" onPress={() => setScreenState('idle')} style={{ marginTop: 20 }}>
           Start a New Search
@@ -177,13 +146,9 @@ export default function PoolingScreen() {
     );
   }
 
-  // Fallback case, should not be reached
   return null;
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 20 
-  },
+  container: { flex: 1, padding: 20 },
 });

@@ -20,11 +20,10 @@ DESTINATION_RADIUS_METERS = 5000 # 5km
 ACTIVE_TIMEOUT_MINUTES = 15
 OLA_DISTANCE_MATRIX_BASIC_API_URL = "https://api.olamaps.io/routing/v1/distanceMatrix/basic"
 
-
 async def _get_distances_from_ola(origin: tuple, destinations: List[tuple]) -> List[float | None]:
     """
-    Helper function to call the OLA Distance Matrix Basic API.
-    (This function is unchanged and confirmed working).
+    Helper function to call the OLA Distance Matrix Basic API,
+    with the CORRECT response parsing logic based on the official documentation.
     """
     if not destinations:
         return []
@@ -43,15 +42,24 @@ async def _get_distances_from_ola(origin: tuple, destinations: List[tuple]) -> L
             response = await client.get(OLA_DISTANCE_MATRIX_BASIC_API_URL, params=params)
             response.raise_for_status()
             results = response.json()
-            if "distances" in results:
-                return [dist for dist in results["distances"]]
+            
+            # --- THIS IS THE CRITICAL FIX ---
+            # We now parse the correct nested structure: rows -> elements -> distance
+            if results.get("status") == "SUCCESS" and results.get("rows"):
+                elements = results["rows"][0].get("elements", [])
+                # Extract the 'distance' from each element. If an element or distance is missing, use None.
+                distances = [
+                    element.get("distance") if element and element.get("status") == "OK" else None
+                    for element in elements
+                ]
+                return distances
+            # --------------------------------
+
         except httpx.HTTPStatusError as e:
             print(f"OLA Maps API Error: {e.response.status_code} - {e.response.text}")
-            try:
-                print("OLA Error Details:", e.response.json())
-            except: pass
     
-    return [None] * len(destinations)
+    return [None] * len(destinations) # Return None on failure
+
 
 
 def create_or_update_pooling_request(

@@ -9,7 +9,6 @@ export interface UserProfile {
   email: string;
   college_name: string;
   username?: string;
-  profile_image_url?: string;
   phone_number?: string;
   bio?: string;
   year_of_study?: string;

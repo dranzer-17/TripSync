@@ -30,9 +30,7 @@ class Profile(Base):
     
     # For example: {"allow_smoking": false, "preferred_music": "pop"}
     preferences = Column(JSONB, nullable=True)
-    
-    profile_image_url = Column(String, nullable=True)
-    resume_url = Column(String, nullable=True)
+
 
     # You also mentioned Social Media and Emergency Contact. Let's add those too.
     # For example: {"linkedin": "url", "twitter": "url"}

@@ -12,7 +12,6 @@ class Profile(BaseModel):
 
     # Profile details
     username: Optional[str] = None
-    profile_image_url: Optional[HttpUrl] = None # HttpUrl validates that it's a valid URL
     phone_number: Optional[str] = None
     bio: Optional[str] = None
     year_of_study: Optional[str] = None

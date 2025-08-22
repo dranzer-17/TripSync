@@ -31,8 +31,6 @@ def get_user_profile(db: Session, user: user_model.User) -> dict:
         "email": user_with_details.email,
         "college_name": user_with_details.college.name if user_with_details.college else "N/A",
         "username": user_with_details.profile.username,
-        "profile_image_url": user_with_details.profile.profile_image_url,
-        "has_resume": user_with_details.profile.resume_url is not None ,
         "phone_number": user_with_details.profile.phone_number,
         "bio": user_with_details.profile.bio,
         "year_of_study": user_with_details.profile.year_of_study,

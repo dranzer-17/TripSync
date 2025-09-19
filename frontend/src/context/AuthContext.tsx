@@ -73,18 +73,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const router = useRouter();
 
+  // This needs to be defined before it's used in useEffect
+  const signOut = async () => {
+    // Clear the state
+    setUser(null);
+    setToken(null);
+    // Clear the token from the API client
+    delete apiClient.defaults.headers.common['Authorization'];
+    // Remove the token from storage
+    await platformStorage.removeItem(TOKEN_KEY);
+  };
+
   useEffect(() => {
     async function loadAuthData() {
       try {
         const storedToken = await platformStorage.getItem(TOKEN_KEY);
         if (storedToken) {
-          setToken(storedToken);
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-          const profile = await getMyProfile();
-          setUser(profile);
+          // --- THIS IS THE CRITICAL FIX ---
+          // We wrap the profile fetch in a try/catch. If it fails due
+          // to an invalid token, we call signOut() to clear the bad data.
+          try {
+            const profile = await getMyProfile();
+            setUser(profile);
+            setToken(storedToken); // Set token only after a successful profile fetch
+          } catch (profileError: any) {
+            // Check if the error is specifically a credentials error
+            if (profileError.message && profileError.message.includes("Could not validate credentials")) {
+              console.warn("Stale or invalid token detected. Automatically signing out.");
+              await signOut();
+            } else {
+              console.error("An error occurred while fetching the user profile on initial load:", profileError);
+            }
+          }
         }
       } catch (e) {
-        // Silently fail, the redirect logic will handle it
+        console.error("Failed to read token from storage:", e);
       } finally {
         setIsLoading(false);
       }
@@ -108,13 +132,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await platformStorage.setItem(TOKEN_KEY, newToken);
     const profile = await getMyProfile();
     setUser(profile);
-  };
-
-  const signOut = async () => {
-    setToken(null);
-    setUser(null);
-    delete apiClient.defaults.headers.common['Authorization'];
-    await platformStorage.removeItem(TOKEN_KEY);
   };
 
   return (

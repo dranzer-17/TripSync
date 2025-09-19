@@ -1,6 +1,9 @@
 import React from 'react';
-import { View, StyleSheet, SafeAreaView, ViewStyle, StyleProp } from 'react-native';
-import { useTheme } from 'react-native-paper'; // Import the useTheme hook
+import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
+// --- THIS IS THE FIX ---
+// Import SafeAreaView from the correct library
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from 'react-native-paper';
 
 interface ScreenWrapperProps {
   children: React.ReactNode;
@@ -8,9 +11,8 @@ interface ScreenWrapperProps {
 }
 
 export default function ScreenWrapper({ children, style }: ScreenWrapperProps) {
-  const theme = useTheme(); // Get the theme object
+  const theme = useTheme();
 
-  // Create a dynamic background color style
   const containerStyle = {
     backgroundColor: theme.colors.background,
   };

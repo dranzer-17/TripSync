@@ -1,35 +1,83 @@
-// src/services/servicesService.ts
-
 import apiClient from './api';
 
-// This interface matches the ProfileBase sub-schema from the backend
-interface PosterProfile {
+// --- DATA STRUCTURES (INTERFACES) ---
+
+export interface ServiceTag {
+  id: number;
+  name: string;
+}
+
+export interface ServicePoster {
+  id: number;
   full_name: string;
 }
 
-// This interface matches the ServicePostList schema from our backend
 export interface ServicePost {
-  description: string;
   id: number;
   title: string;
-  poster_user_id: number; 
-  is_paid: boolean;
-  price?: number;
-  status: string;
-  created_at: string; // Dates will be strings in JSON
-  poster: PosterProfile;
+  description: string;
+  poster_user_id: number;
+  status: 'open' | 'in_progress' | 'completed' | 'cancelled';
+  team_size: number;
+  deadline?: string;
+  compensation_type: 'volunteer' | 'fixed_price' | 'hourly_rate' | 'negotiable';
+  compensation_amount?: number;
+  requires_resume: boolean;
+  requires_cover_letter: boolean;
+  is_anonymous: boolean;
+  created_at: string;
+  poster?: ServicePoster;
+  tags: ServiceTag[];
 }
+
 export interface ServicePostCreateData {
   title: string;
   description: string;
-  is_paid: boolean;
-  price?: number;
-  requirements: string[];
-  filters: { type: string; value: string }[];
+  team_size: number;
+  deadline?: string;
+  compensation_type: 'volunteer' | 'fixed_price' | 'hourly_rate' | 'negotiable';
+  compensation_amount?: number;
+  requires_resume: boolean;
+  // --- THIS IS THE FIX ---
+  // This field was missing, causing the button to fail.
+  requires_cover_letter: boolean;
+  is_anonymous: boolean;
+  tags: string[];
 }
-export const getAllServicePosts = async (): Promise<ServicePost[]> => {
+
+export interface ServiceApplicationCreateData {
+  cover_letter?: string;
+  resume_url?: string;
+  proposed_rate?: number;
+}
+
+export interface ServiceApplication {
+  id: number;
+  status: 'pending' | 'accepted' | 'rejected';
+  applicant: ServicePoster;
+  service_post: {
+    id: number;
+    title: string;
+  };
+}
+
+
+// --- API COMMUNICATION FUNCTIONS ---
+
+export const getAllServicePosts = async (
+  searchQuery?: string,
+  tags?: string[]
+): Promise<ServicePost[]> => {
   try {
-    const response = await apiClient.get('/services');
+    const params = new URLSearchParams();
+    if (searchQuery) {
+      params.append('search', searchQuery);
+    }
+    if (tags && tags.length > 0) {
+      tags.forEach(tag => params.append('tags', tag));
+    }
+
+    const response = await apiClient.get(`/services?${params.toString()}`);
     return response.data;
   } catch (error: any) {
     console.error('Get all service posts failed:', error.response?.data || error.message);
@@ -37,21 +85,44 @@ export const getAllServicePosts = async (): Promise<ServicePost[]> => {
   }
 };
 
+export const getServicePostById = async (postId: number): Promise<ServicePost> => {
+  try {
+    const response = await apiClient.get(`/services/${postId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Get service post by ID ${postId} failed:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch service details.');
+  }
+};
+
 export const createServicePost = async (
-  token: string, 
+  token: string,
   postData: ServicePostCreateData
 ): Promise<ServicePost> => {
   try {
     const response = await apiClient.post('/services', postData, {
-      headers: {
-        // We must include the token to access this protected endpoint
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
     return response.data;
   } catch (error: any) {
     console.error('Create service post failed:', error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to post service.');
+  }
+};
+
+export const applyForService = async (
+  token: string,
+  postId: number,
+  applicationData: ServiceApplicationCreateData
+): Promise<ServiceApplication> => {
+  try {
+    const response = await apiClient.post(`/services/${postId}/apply`, applicationData, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error(`Apply for service ${postId} failed:`, error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to apply for service.');
   }
 };
 
@@ -66,4 +137,37 @@ export const deleteServicePost = async (token: string, postId: number): Promise<
     console.error('Delete service post failed:', error.response?.data || error.message);
     throw new Error(error.response?.data?.detail || 'Failed to delete post.');
   }
+};
+
+export const getApplicationsForPost = async (token: string, postId: number): Promise<ServiceApplication[]> => {
+    try {
+        const response = await apiClient.get(`/services/${postId}/applications`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return response.data;
+    } catch (error: any) {
+        throw new Error(error.response?.data?.detail || 'Failed to fetch applications.');
+    }
+};
+
+export const getMyServicePosts = async (token: string): Promise<ServicePost[]> => {
+    try {
+        const response = await apiClient.get('/profile/me/posts', {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return response.data;
+    } catch (error: any) {
+        throw new Error(error.response?.data?.detail || 'Failed to fetch your posts.');
+    }
+};
+
+export const getMyApplications = async (token: string): Promise<ServiceApplication[]> => {
+    try {
+        const response = await apiClient.get('/profile/me/applications', {
+             headers: { Authorization: `Bearer ${token}` },
+        });
+        return response.data;
+    } catch (error: any) {
+        throw new Error(error.response?.data?.detail || 'Failed to fetch your applications.');
+    }
 };

@@ -1,71 +1,59 @@
-// src/app/(main)/services/index.tsx
-
 import React, { useState, useCallback, useEffect } from 'react';
-import { FlatList, StyleSheet, Alert, View } from 'react-native';
-import { ActivityIndicator, FAB, Text } from 'react-native-paper';
+import { FlatList, StyleSheet, Alert, View, ScrollView } from 'react-native';
+import { ActivityIndicator, FAB, Searchbar, Chip, Text, useTheme } from 'react-native-paper';
 import { useFocusEffect, useRouter } from 'expo-router';
 import ScreenWrapper from '../../../components/ScreenWrapper';
 import ServiceCard from '../../../components/services/ServiceCard';
 import { getAllServicePosts, deleteServicePost, ServicePost } from '../../../services/servicesService';
+import { useDebounce } from '../../../hooks/useDebounce';
 import { useAuth } from '../../../context/AuthContext';
-import { getMyProfile, UserProfile } from '../../../services/profileService';
+
+const POPULAR_TAGS = ['Writing', 'Research', 'Python', 'Design', 'Tutoring', 'Marketing', 'Event Help'];
 
 export default function ServicesScreen() {
+  const theme = useTheme();
+  const router = useRouter();
+  const { token } = useAuth();
   const [posts, setPosts] = useState<ServicePost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
-  const router = useRouter();
-  const { token, user } = useAuth(); // Let's use the user from AuthContext
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
   const fetchData = useCallback(async () => {
     try {
-      if (!currentUserProfile) setIsLoading(true);
-      // We can use the user object from the context if it exists
-      if (user) {
-        setCurrentUserProfile(user);
-      } else {
-        // Fallback to fetching if it's not in the context yet
-        const userProfile = await getMyProfile();
-        setCurrentUserProfile(userProfile);
-      }
-      
-      const fetchedPosts = await getAllServicePosts();
+      const fetchedPosts = await getAllServicePosts(debouncedSearchQuery, selectedTags);
       setPosts(fetchedPosts);
-
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Failed to load data.");
+      Alert.alert("Error", "Failed to load services. Please try again.");
     } finally {
       setIsLoading(false);
     }
-  }, [currentUserProfile, user]);
-
-  useFocusEffect(useCallback(() => { fetchData(); }, []));
+  }, [debouncedSearchQuery, selectedTags]);
 
   useEffect(() => {
-    if (!isLoading) {
-      console.log("--- DEBUGGING My Post ---");
-      console.log("Current User from AuthContext:", JSON.stringify(user, null, 2));
-      console.log("Current User ID being passed to cards:", user?.id || 'null');
-      if (posts && posts.length > 0) {
-        console.log("Poster ID of the first post:", posts[0].poster_user_id);
-        console.log("Does the first post match?", posts[0].poster_user_id === user?.id);
-      }
-      console.log("-------------------------");
-    }
-  }, [posts, user, isLoading]);
+    fetchData();
+  }, [fetchData]);
 
-  // --- THIS IS THE FIX ---
+  useFocusEffect(useCallback(() => { setIsLoading(true); fetchData(); }, []));
+
+  const handleTagPress = (tag: string) => {
+    setSelectedTags(currentTags =>
+      currentTags.includes(tag)
+        ? currentTags.filter(t => t !== tag)
+        : [...currentTags, tag]
+    );
+  };
+
   const handleDeletePost = (postId: number) => {
     if (!token) {
       Alert.alert("Error", "You must be logged in to delete a post.");
       return;
     }
-
-    // 1. Ask for confirmation
     Alert.alert(
-      "Delete Post",
-      "Are you sure you want to delete this service post?",
+      "Delete Service Post",
+      "Are you sure you want to permanently delete this post?",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -73,61 +61,89 @@ export default function ServicesScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              // 2. Call the API service
               await deleteServicePost(token, postId);
-              
-              // 3. Update the local state to remove the post
               setPosts(currentPosts => currentPosts.filter(post => post.id !== postId));
-
-              Alert.alert("Success", "Post deleted successfully.");
-
+              Alert.alert("Success", "The post has been deleted.");
             } catch (error: any) {
-              // 4. Show an error message on failure
-              Alert.alert("Error", `Failed to delete post: ${error.message}`);
+              Alert.alert("Deletion Failed", error.message);
             }
           },
         },
       ]
     );
   };
-  // -------------------------
+
+  // Dynamic styles that pull from the theme object
+  const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    header: { paddingHorizontal: 16, paddingTop: 16, backgroundColor: theme.colors.background },
+    searchbar: { marginBottom: 16, backgroundColor: theme.colors.surface },
+    chipContainer: { paddingBottom: 16 },
+    chip: { marginRight: 8, backgroundColor: theme.colors.surface },
+    chipSelected: { backgroundColor: theme.colors.primary },
+    chipText: { color: theme.colors.onSurface },
+    chipTextSelected: { color: '#FFFFFF', fontWeight: 'bold' },
+    listContent: { paddingHorizontal: 16, paddingBottom: 80 },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: theme.colors.background },
+    fab: { position: 'absolute', margin: 16, right: 0, bottom: 0, backgroundColor: theme.colors.primary },
+  });
+
+  const ListHeader = (
+    <View style={styles.header}>
+      <Searchbar
+        placeholder="Search by title or skill..."
+        onChangeText={setSearchQuery}
+        value={searchQuery}
+        style={styles.searchbar}
+        elevation={1}
+      />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContainer}>
+        {POPULAR_TAGS.map(tag => (
+          <Chip
+            key={tag}
+            mode="outlined"
+            selected={selectedTags.includes(tag)}
+            onPress={() => handleTagPress(tag)}
+            style={[styles.chip, selectedTags.includes(tag) && styles.chipSelected]}
+            textStyle={[styles.chipText, selectedTags.includes(tag) && styles.chipTextSelected]}
+          >
+            {tag}
+          </Chip>
+        ))}
+      </ScrollView>
+    </View>
+  );
 
   if (isLoading) {
     return <ScreenWrapper style={styles.center}><ActivityIndicator size="large" /></ScreenWrapper>;
   }
 
   return (
-    <ScreenWrapper style={styles.container}>
+    <ScreenWrapper>
       <FlatList
+        style={{ backgroundColor: theme.colors.background }}
         data={posts}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
-          <ServiceCard
-            post={item}
-            currentUserId={user?.id || null}
-            onDelete={handleDeletePost} // This now calls the implemented function
-          />
+          <ServiceCard post={item} onPostDeleted={handleDeletePost} />
         )}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={ListHeader}
         ListEmptyComponent={
           <View style={styles.center}>
-            <Text>No services posted yet. Be the first!</Text>
+            <Text variant='titleMedium'>No Services Found</Text>
+            <Text variant='bodySmall' style={{ color: theme.colors.onSurfaceVariant }}>Try adjusting your search or filters.</Text>
           </View>
         }
       />
       
       <FAB
         icon="plus"
+        color="#FFFFFF"
         style={styles.fab}
-        onPress={() => router.push('./services/create')}
+        onPress={() => router.push('/services/create' as any)}
+        aria-label="Create a new service post"
       />
     </ScreenWrapper>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  listContent: { padding: 15, paddingBottom: 80 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  fab: { position: 'absolute', margin: 16, right: 0, bottom: 0 },
-});

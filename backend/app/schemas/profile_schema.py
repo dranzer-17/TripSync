@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 # This will be the main schema for returning a user's full profile details.
 class Profile(BaseModel):
     # User details (will be populated from the related User object)
+    id: int
     full_name: str
     email: str
     college_name: str

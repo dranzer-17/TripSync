@@ -1,32 +1,33 @@
-// src/components/ScreenWrapper.tsx
-
 import React from 'react';
-import { View, StyleSheet, ViewProps } from 'react-native';
-import { useTheme } from 'react-native-paper';
+import { View, StyleSheet, SafeAreaView, ViewStyle, StyleProp } from 'react-native';
+import { useTheme } from 'react-native-paper'; // Import the useTheme hook
 
-// This allows our wrapper to accept all the standard View props
-interface ScreenWrapperProps extends ViewProps {
+interface ScreenWrapperProps {
   children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
 }
 
-export default function ScreenWrapper({ children, style, ...rest }: ScreenWrapperProps) {
-  const theme = useTheme();
+export default function ScreenWrapper({ children, style }: ScreenWrapperProps) {
+  const theme = useTheme(); // Get the theme object
+
+  // Create a dynamic background color style
+  const containerStyle = {
+    backgroundColor: theme.colors.background,
+  };
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: theme.colors.background }, // Apply theme background color
-        style, // Allow custom styles to be passed in
-      ]}
-      {...rest}
-    >
-      {children}
-    </View>
+    <SafeAreaView style={[styles.safeArea, containerStyle]}>
+      <View style={[styles.container, style]}>
+        {children}
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },

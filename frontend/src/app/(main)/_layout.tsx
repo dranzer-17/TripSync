@@ -11,46 +11,37 @@ export default function MainLayout() {
   return (
     <Tabs
       screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: 'gray',
-        tabBarStyle: { backgroundColor: theme.colors.surface },
-        headerStyle: { backgroundColor: theme.colors.surface },
-        headerTitleStyle: { color: 'white' }
+        tabBarInactiveTintColor: theme.colors.onSurfaceVariant,
+        tabBarStyle: {
+            backgroundColor: theme.colors.surface,
+            borderTopColor: theme.colors.outline,
+        },
       }}
     >
       <Tabs.Screen
-        name="home" // Connects to home.tsx
+        name="home"
         options={{
           title: 'Pooling',
           tabBarIcon: ({ color, size }) => <Ionicons name="car-sport" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="services/index" // Connects to services/index.tsx
+        name="services"
         options={{
           title: 'Services',
+          // --- THIS IS THE FIX ---
           tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="profile" // Connects to profile.tsx
+        name="profile"
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
         }}
       />
-      
-      {/* --- THIS IS THE CRITICAL FIX --- */}
-      {/* We explicitly tell the router about the 'create' screen, */}
-      {/* but we HIDE it from the tab bar. */}
-      <Tabs.Screen
-        name="services/create"
-        options={{
-          title: 'Create Service', // This will be the header title
-          href: null, // This hides it from the tab bar
-        }}
-      />
-      {/* -------------------------------- */}
     </Tabs>
   );
 }

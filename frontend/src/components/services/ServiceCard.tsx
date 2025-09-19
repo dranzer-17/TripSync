@@ -36,27 +36,17 @@ export default function ServiceCard({ post, onPostDeleted }: ServiceCardProps) {
   const { user } = useAuth();
   
   const [menuVisible, setMenuVisible] = useState(false);
-  // --- ROBUST way to open/close menu to avoid race conditions ---
-  const openMenu = (e: any) => {
-    // Stop the card's onPress from firing when the menu button is pressed
-    e.stopPropagation();
-    setMenuVisible(true);
-  };
+  const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
 
-  // --- THIS IS THE CRITICAL FIX ---
-  // We check if the `user` object from the auth context exists AND
-  // if its `id` matches the `poster_user_id` directly on the post object.
-  // This is the most reliable way to check for ownership.
   const isMyPost = !!user && user.id === post.poster_user_id;
 
-  const handlePress = () => {
+  const handleCardPress = () => {
     if (!post || typeof post.id !== 'number') { return; }
     router.push(`/services/${post.id}` as any);
   };
 
-  const handleDelete = (e: any) => {
-    e.stopPropagation(); // Stop event bubbling
+  const handleDelete = () => {
     closeMenu();
     onPostDeleted(post.id); 
   };
@@ -83,7 +73,7 @@ export default function ServiceCard({ post, onPostDeleted }: ServiceCardProps) {
   });
 
   return (
-    <Card style={styles.card} onPress={handlePress}>
+    <Card style={styles.card} onPress={handleCardPress}>
       <Card.Content>
         <View style={styles.header}>
           <Avatar.Icon size={40} icon="account-circle" style={styles.avatar} />
@@ -100,9 +90,21 @@ export default function ServiceCard({ post, onPostDeleted }: ServiceCardProps) {
             <Menu
               visible={menuVisible}
               onDismiss={closeMenu}
-              anchor={<IconButton icon="dots-vertical" onPress={openMenu} size={24} />}
+              anchor={
+                <IconButton 
+                  icon="dots-vertical" 
+                  onPress={openMenu}
+                  size={24} 
+                />
+              }
             >
-              <Menu.Item onPress={handleDelete} title="Delete Post" leadingIcon="delete-outline" />
+              <Menu.Item 
+                onPress={handleDelete}
+                title="Delete Post" 
+                leadingIcon="delete-outline"
+                titleStyle={{ color: '#F44336' }}
+                style={{ backgroundColor: 'rgba(244, 67, 54, 0.1)' }}
+              />
             </Menu>
           )}
         </View>

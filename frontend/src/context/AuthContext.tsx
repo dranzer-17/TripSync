@@ -1,12 +1,56 @@
-// src/context/AuthContext.tsx
-
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import apiClient from '../services/api';
 import { UserProfile, getMyProfile } from '../services/profileService';
 
 const TOKEN_KEY = 'my-jwt';
+
+// Platform-specific storage helper
+const platformStorage = {
+  async getItem(key: string): Promise<string | null> {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof globalThis !== 'undefined' && typeof (globalThis as any).localStorage !== 'undefined') {
+          return (globalThis as any).localStorage.getItem(key);
+        }
+        return null;
+      } else {
+        return await SecureStore.getItemAsync(key);
+      }
+    } catch (error) {
+      console.error('Storage getItem error:', error);
+      return null;
+    }
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof globalThis !== 'undefined' && typeof (globalThis as any).localStorage !== 'undefined') {
+          (globalThis as any).localStorage.setItem(key, value);
+        }
+      } else {
+        await SecureStore.setItemAsync(key, value);
+      }
+    } catch (error) {
+      console.error('Storage setItem error:', error);
+    }
+  },
+  async removeItem(key: string): Promise<void> {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof globalThis !== 'undefined' && typeof (globalThis as any).localStorage !== 'undefined') {
+          (globalThis as any).localStorage.removeItem(key);
+        }
+      } else {
+        await SecureStore.deleteItemAsync(key);
+      }
+    } catch (error) {
+      console.error('Storage removeItem error:', error);
+    }
+  }
+};
 
 interface AuthContextData {
   token: string | null;
@@ -32,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function loadAuthData() {
       try {
-        const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
+        const storedToken = await platformStorage.getItem(TOKEN_KEY);
         if (storedToken) {
           setToken(storedToken);
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
@@ -40,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(profile);
         }
       } catch (e) {
-        // This is a silent failure, the redirect logic will handle it
+        // Silently fail, the redirect logic will handle it
       } finally {
         setIsLoading(false);
       }
@@ -48,27 +92,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadAuthData();
   }, []);
 
-  // --- THIS IS THE WORKING REDIRECTION LOGIC ---
   useEffect(() => {
     if (isLoading) return;
-
-    const inAuthGroup = (segments[0] as any) === '(auth)';
-
+    const inAuthGroup = String(segments[0]) === '(auth)';
     if (token && inAuthGroup) {
-      // Navigate to main home screen after authentication
-      router.replace('../(main)/home' as any);
+      (router as any).replace('/(main)/home');
     } else if (!token && !inAuthGroup) {
-      // Navigate back to login if not authenticated
-      router.replace('./(auth)/login' as any);
+      (router as any).replace('/(auth)/login');
     }
   }, [token, segments, isLoading, router]);
-  // ---------------------------------------------
-
   
   const signIn = async (newToken: string) => {
     setToken(newToken);
     apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-    await SecureStore.setItemAsync(TOKEN_KEY, newToken);
+    await platformStorage.setItem(TOKEN_KEY, newToken);
     const profile = await getMyProfile();
     setUser(profile);
   };
@@ -77,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     delete apiClient.defaults.headers.common['Authorization'];
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await platformStorage.removeItem(TOKEN_KEY);
   };
 
   return (

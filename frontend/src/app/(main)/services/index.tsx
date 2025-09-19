@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { FlatList, StyleSheet, Alert, View, ScrollView } from 'react-native';
-import { ActivityIndicator, FAB, Searchbar, Chip, Text, useTheme } from 'react-native-paper';
+import { FlatList, StyleSheet, View, ScrollView, Platform } from 'react-native';
+import { ActivityIndicator, FAB, Searchbar, Chip, Text, useTheme, Snackbar } from 'react-native-paper';
 import { useFocusEffect, useRouter } from 'expo-router';
 import ScreenWrapper from '../../../components/ScreenWrapper';
 import ServiceCard from '../../../components/services/ServiceCard';
@@ -18,7 +18,18 @@ export default function ServicesScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarType, setSnackbarType] = useState<'success' | 'error'>('success');
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
+
+  const showSnackbar = (message: string, type: 'success' | 'error' = 'success') => {
+    setSnackbarMessage(message);
+    setSnackbarType(type);
+    setSnackbarVisible(true);
+  };
+
+  const hideSnackbar = () => setSnackbarVisible(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -26,7 +37,7 @@ export default function ServicesScreen() {
       setPosts(fetchedPosts);
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Failed to load services. Please try again.");
+      showSnackbar("Failed to load services. Please try again.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -46,34 +57,21 @@ export default function ServicesScreen() {
     );
   };
 
-  const handleDeletePost = (postId: number) => {
+  const handleDeletePost = async (postId: number) => {
     if (!token) {
-      Alert.alert("Error", "You must be logged in to delete a post.");
+      showSnackbar("You must be logged in to delete a post.", "error");
       return;
     }
-    Alert.alert(
-      "Delete Service Post",
-      "Are you sure you want to permanently delete this post?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteServicePost(token, postId);
-              setPosts(currentPosts => currentPosts.filter(post => post.id !== postId));
-              Alert.alert("Success", "The post has been deleted.");
-            } catch (error: any) {
-              Alert.alert("Deletion Failed", error.message);
-            }
-          },
-        },
-      ]
-    );
+
+    try {
+      await deleteServicePost(token, postId);
+      setPosts(currentPosts => currentPosts.filter(post => post.id !== postId));
+      showSnackbar("✓ Post deleted successfully!", "success");
+    } catch (error: any) {
+      showSnackbar(`Deletion failed: ${error.message}`, "error");
+    }
   };
 
-  // Dynamic styles that pull from the theme object
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
     header: { paddingHorizontal: 16, paddingTop: 16, backgroundColor: theme.colors.background },
@@ -144,6 +142,19 @@ export default function ServicesScreen() {
         onPress={() => router.push('/services/create' as any)}
         aria-label="Create a new service post"
       />
+
+      <Snackbar
+        visible={snackbarVisible}
+        onDismiss={hideSnackbar}
+        duration={3000}
+        style={{ 
+          backgroundColor: snackbarType === 'success' ? '#4CAF50' : '#F44336'
+        }}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold' }}>
+          {snackbarMessage}
+        </Text>
+      </Snackbar>
     </ScreenWrapper>
   );
 }

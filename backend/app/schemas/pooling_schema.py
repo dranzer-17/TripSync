@@ -3,7 +3,6 @@
 from pydantic import BaseModel
 from typing import Optional
 
-# --- Input Schemas ---
 # This is the data the frontend will send to create a request
 class PoolingRequestCreate(BaseModel):
     start_latitude: float
@@ -12,7 +11,6 @@ class PoolingRequestCreate(BaseModel):
     destination_longitude: float
     destination_name: Optional[str] = None
 
-# --- Output Schemas ---
 # This defines the user data we send back in a match list
 class MatchedUser(BaseModel):
     id: int

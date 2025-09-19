@@ -7,15 +7,13 @@
         "./src/*"
       ]
     },
-    // This is the most important line. It tells TypeScript to load the
-    // special type definitions for Expo Router's file-based routes.
-    "types": ["expo-router/types"]
+    "types": [
+      "expo-router/types"
+    ]
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    "src/.expo/types/**/*.ts",
-    "expo-env.d.ts",
-    ".expo/types/**/*.ts"
+    "src/.expo/types/**/*.ts"
   ]
 }

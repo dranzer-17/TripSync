@@ -3,11 +3,9 @@ from fastapi import FastAPI
 from app.router import router
 from app.db.database import Base, engine
 from contextlib import asynccontextmanager
-from app.models import user_model
 from dotenv import load_dotenv
-from app.models import user_model, pooling_model
 from fastapi.middleware.cors import CORSMiddleware
-from app.models import user_model, pooling_model, profile_model
+from app.models import user_model, pooling_model, profile_model, service_model
 load_dotenv()
 # This function will create the database tables.
 def create_db_and_tables():

@@ -4,86 +4,84 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { useRouter, useSegments } from 'expo-router';
 import apiClient from '../services/api';
+import { UserProfile, getMyProfile } from '../services/profileService';
 
 const TOKEN_KEY = 'my-jwt';
 
-// Define the shape of our context
 interface AuthContextData {
   token: string | null;
+  user: UserProfile | null;
   isLoading: boolean;
-  signIn: (token: string) => void;
-  signOut: () => void;
+  signIn: (token: string) => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
-// This is a custom hook that components can use to access the context
 export function useAuth() {
   return useContext(AuthContext);
 }
 
-// This is the provider component that will wrap our entire app
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    async function loadToken() {
+    async function loadAuthData() {
       try {
         const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
         if (storedToken) {
           setToken(storedToken);
-          // Set the token on the API client for all future requests
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          const profile = await getMyProfile();
+          setUser(profile);
         }
       } catch (e) {
-        console.error('Failed to load token', e);
+        // This is a silent failure, the redirect logic will handle it
       } finally {
         setIsLoading(false);
       }
     }
-    loadToken();
+    loadAuthData();
   }, []);
 
+  // --- THIS IS THE WORKING REDIRECTION LOGIC ---
   useEffect(() => {
-    // Wait until the token has been loaded from storage
-    if (isLoading) {
-      return;
-    }
+    if (isLoading) return;
 
     const inAuthGroup = (segments[0] as any) === '(auth)';
 
-    // User is logged in and tries to access login/register pages.
     if (token && inAuthGroup) {
-      // Redirect away from the auth pages to the main app.
-      router.replace('../(main)/home');
-    } 
-    
-    // User is not logged in and is trying to access a protected page.
-    else if (!token && !inAuthGroup) {
-      // Redirect back to the login page.
-      router.replace('../(auth)/login');
+      // Navigate to main home screen after authentication
+      router.replace('../(main)/home' as any);
+    } else if (!token && !inAuthGroup) {
+      // Navigate back to login if not authenticated
+      router.replace('./(auth)/login' as any);
     }
-  }, [token, segments, isLoading]); // Dependencies for the effect
+  }, [token, segments, isLoading, router]);
+  // ---------------------------------------------
 
+  
   const signIn = async (newToken: string) => {
     setToken(newToken);
-    await SecureStore.setItemAsync(TOKEN_KEY, newToken);
-    // Set the token on the API client for all future requests
     apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    await SecureStore.setItemAsync(TOKEN_KEY, newToken);
+    const profile = await getMyProfile();
+    setUser(profile);
   };
 
   const signOut = async () => {
     setToken(null);
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    // Remove the token from the API client
+    setUser(null);
     delete apiClient.defaults.headers.common['Authorization'];
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
   };
 
   return (
-    <AuthContext.Provider value={{ token, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ token, user, isLoading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

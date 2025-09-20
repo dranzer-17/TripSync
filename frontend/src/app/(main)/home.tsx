@@ -1,154 +1,231 @@
 // src/app/(main)/home.tsx
-
-import React, { useState, useEffect } from 'react';
-import { Alert, FlatList, StyleSheet } from 'react-native';
-import { Text, Button } from 'react-native-paper';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
+import { WebView } from 'react-native-webview';
+import { useFocusEffect } from 'expo-router'; // Import useFocusEffect
 
 // --- Local Hooks & Context ---
 import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../context/AuthContext';
 import { usePoolingSocket } from '../../hooks/usePoolingSocket';
 
-// --- API Service Functions ---
-import { createRequestAndFindMatches, MatchedUser } from '../../services/poolingService';
-// We don't need Autocomplete types here yet, simplifying the import
+// --- API Service Functions & Types ---
 import { getAddressFromCoords, getPlaceDetails, AutocompleteSuggestion, PlaceDetails } from '../../services/locationService';
+import { getRouteDetails, RouteDetails, createRequestAndFindMatches, MatchedUser } from '../../services/poolingService';
 
-// --- Custom UI Components ---
-import IdlePoolingView from '../../components/pooling/IdlePoolingView';
-import ActivePoolingView from '../../components/pooling/ActivePoolingView';
-import SearchingView from '../../components/pooling/SearchingView'; // <-- IMPORT
-import MatchedUserCard from '../../components/pooling/MatchedUserCard';
-import ScreenWrapper from '../../components/ScreenWrapper';
+// --- UI Components ---
+import OlaMapWebView from '../../components/pooling/OlaMapWebView';
+import MapInterface from '../../components/pooling/MapInterface';
+import LocationSearchModal from '../../components/pooling/LocationSearchModal';
+import RouteConfirmationCard from '../../components/pooling/RouteConfirmationCard';
+import SearchingOverlay from '../../components/pooling/SearchingOverlay';
+import MatchFoundModal from '../../components/pooling/MatchFoundModal';
 
-// Define the possible states for our screen's UI
-type ScreenState = 'idle' | 'active_search' | 'searching' | 'results';
+type ScreenState = 'idle' | 'confirming_route' | 'searching' | 'results';
+type MapPitch = 60 | 0;
 
 export default function PoolingScreen() {
   const { token } = useAuth();
-  const { location, errorMsg, getUserLocation } = useLocation();
+  const { location: liveLocation, getUserLocation } = useLocation();
   const { match, connect, disconnect } = usePoolingSocket(token);
 
+  const [isSearchModalVisible, setIsSearchModalVisible] = useState(false);
   const [screenState, setScreenState] = useState<ScreenState>('idle');
-  const [startLocationName, setStartLocationName] = useState('');
-  const [destination, setDestination] = useState(''); // Keep this for now
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickupLocationName, setPickupLocationName] = useState('Setting pickup location...');
   const [selectedDestination, setSelectedDestination] = useState<PlaceDetails | null>(null);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [routeDetails, setRouteDetails] = useState<RouteDetails | null>(null);
   const [matches, setMatches] = useState<MatchedUser[]>([]);
+  const [mapPitch, setMapPitch] = useState<MapPitch>(60);
+
+  const webViewRef = useRef<WebView>(null);
+  const isMapReady = useRef(false);
+
+  // --- Map and Location Logic ---
+
+  const handleMapReady = useCallback(() => {
+    isMapReady.current = true;
+    (async () => {
+      const userLocation = await getUserLocation();
+      if (userLocation) {
+        const coords = { lat: userLocation.coords.latitude, lng: userLocation.coords.longitude };
+        flyTo(coords);
+      }
+    })();
+  }, [getUserLocation]);
+
+  const flyTo = (coords: { lat: number; lng: number }) => {
+    if (isMapReady.current && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`window.flyTo({ lat: ${coords.lat}, lng: ${coords.lng} }); true;`);
+    }
+  };
+
+  const handleRecenter = () => {
+    if (liveLocation) flyTo({ lat: liveLocation.coords.latitude, lng: liveLocation.coords.longitude });
+  };
+
+  const toggleMapPitch = () => {
+    const newPitch = mapPitch === 60 ? 0 : 60;
+    setMapPitch(newPitch);
+    webViewRef.current?.injectJavaScript(`window.setMapPitch(${newPitch}); true;`);
+  };
+
+  const handleMapCenterChange = useCallback((coords: { lat: number; lng: number }) => {
+    setMapCenter(coords);
+  }, []);
 
   useEffect(() => {
-    if (match) {
-      setMatches(prev => [...prev, match]);
-      setScreenState('results');
-      disconnect();
-    }
-  }, [match]);
-
-  const handleFindPoolersPress = async () => {
-    setIsLoadingLocation(true);
-    const userLocation = await getUserLocation();
-    if (userLocation) {
-      const address = await getAddressFromCoords(userLocation.coords);
-      setStartLocationName(address);
-      setScreenState('active_search');
-    } else if (errorMsg) {
-      Alert.alert('Location Error', errorMsg);
-    }
-    setIsLoadingLocation(false);
-  };
-
-  // THIS IS A TEMPORARY FUNCTION UNTIL WE ADD AUTOCOMPLETE
-  const handlePlaceSelected = (place: AutocompleteSuggestion) => {
-    // This will be replaced when we add the real autocomplete component
-    setDestination(place.description);
-  };
+    const debounceTimeout = setTimeout(async () => {
+      if (mapCenter && screenState === 'idle') {
+        const address = await getAddressFromCoords({ latitude: mapCenter.lat, longitude: mapCenter.lng });
+        setPickupLocationName(address);
+      }
+    }, 500);
+    return () => clearTimeout(debounceTimeout);
+  }, [mapCenter, screenState]);
   
-  const handleSearchSubmit = async () => {
-    // For now, we simulate a selected destination
-    if (!location?.coords || !destination || !token) {
-      Alert.alert('Error', 'Please enter a destination.');
-      return;
-    }
+  // --- Ride Logic ---
 
-    setScreenState('searching'); // <-- THIS IS THE KEY CHANGE
+  const handlePlaceSelected = async (place: AutocompleteSuggestion) => {
+    setIsSearchModalVisible(false);
+    const details = await getPlaceDetails(place.place_id);
+    if (!details || !mapCenter || !token) return;
+
+    setSelectedDestination(details);
+    
+    try {
+      const route = await getRouteDetails(token, {
+        start_lat: mapCenter.lat,
+        start_lng: mapCenter.lng,
+        end_lat: details.geometry.location.lat,
+        end_lng: details.geometry.location.lng,
+      });
+      setRouteDetails(route);
+
+      const polylineString = JSON.stringify(route.polyline);
+      webViewRef.current?.injectJavaScript(`window.drawRoute(${polylineString}); true;`);
+      
+      const destCoords = details.geometry.location;
+      webViewRef.current?.injectJavaScript(`window.addOrUpdateDestinationMarker({lat: ${destCoords.lat}, lng: ${destCoords.lng}}); true;`);
+      
+      setScreenState('confirming_route');
+
+    } catch (error: any) {
+      Alert.alert('Route Error', error.message);
+      handleNewSearch();
+    }
+  };
+
+  const handleConfirmAndFindMatches = async () => {
+    if (!mapCenter || !selectedDestination || !routeDetails || !token) {
+        Alert.alert('Error', 'Missing trip details. Please start over.');
+        return;
+    }
+    setScreenState('searching');
     connect();
 
     try {
-      // We will use a placeholder destination until autocomplete is wired up
-      const placeholderDestination = { lat: 19.1073, lng: 72.8371 };
+        const destCoords = selectedDestination.geometry.location;
+        const response = await createRequestAndFindMatches(token, {
+            start_latitude: mapCenter.lat,
+            start_longitude: mapCenter.lng,
+            destination_latitude: destCoords.lat,
+            destination_longitude: destCoords.lng,
+            destination_name: selectedDestination.name,
+        });
 
-      const response = await createRequestAndFindMatches(token, {
-        start_latitude: location.coords.latitude,
-        start_longitude: location.coords.longitude,
-        destination_latitude: placeholderDestination.lat,
-        destination_longitude: placeholderDestination.lng,
-        destination_name: destination,
-      });
-
-      if (response.matches.length > 0) {
-        setMatches(response.matches);
-        setScreenState('results');
-        disconnect();
-      }
-      // If no immediate match, we stay in the 'searching' state
+        if (response.matches.length > 0) {
+            setMatches(response.matches);
+            setScreenState('results');
+            disconnect();
+        }
     } catch (error: any) {
-      Alert.alert('Search Failed', error.message);
-      setScreenState('active_search');
-      disconnect();
+        Alert.alert('Search Failed', error.message);
+        setScreenState('confirming_route');
+        disconnect();
     }
   };
   
-  const handleCancelSearch = () => {
-    disconnect();
+  const handleNewSearch = () => {
     setScreenState('idle');
+    setSelectedDestination(null);
+    setRouteDetails(null);
+    setMatches([]);
+    webViewRef.current?.injectJavaScript('window.clearRoute(); true;');
+    webViewRef.current?.injectJavaScript('window.clearDestinationMarker(); true;');
   };
-  
-  // --- Conditional Rendering ---
-  
-  if (screenState === 'idle') {
-    return <IdlePoolingView onFindPoolers={handleFindPoolersPress} isLoading={isLoadingLocation} />;
-  }
 
-  if (screenState === 'active_search') {
-    // We are passing props to the OLD ActivePoolingView from your working code
-    return (
-      <ActivePoolingView
-        startLocation={startLocationName}
-        onStartLocationChange={setStartLocationName}
-        onPlaceSelected={handlePlaceSelected} // This won't do anything yet
-        onSearch={handleSearchSubmit}
-        onGoToCollege={() => setDestination('College')}
-        isSearchDisabled={!destination} // Simple check for now
+  useFocusEffect(
+    useCallback(() => {
+      // This will reset the screen to its initial state when the user navigates back to it
+      handleNewSearch();
+    }, [])
+  );
+
+  useEffect(() => {
+    if (match) {
+        setMatches(prev => [...prev, match]);
+        setScreenState('results');
+        disconnect();
+    }
+  }, [match, disconnect]);
+
+  // --- RENDER ---
+  return (
+    <View style={styles.container}>
+      <OlaMapWebView
+        ref={webViewRef}
+        onMapReady={handleMapReady}
+        onMapCenterChange={handleMapCenterChange}
       />
-    );
-  }
 
-  if (screenState === 'searching') {
-    return <SearchingView onCancel={handleCancelSearch} />;
-  }
-
-  if (screenState === 'results') {
-    return (
-      <ScreenWrapper style={styles.container}>
-        <Text variant="headlineSmall" style={{ marginBottom: 20 }}>
-          Found {matches.length} {matches.length === 1 ? 'Match' : 'Matches'}
-        </Text>
-        <FlatList
-          data={matches}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => <MatchedUserCard user={item} />}
-          ListEmptyComponent={<Text>No active poolers found nearby.</Text>}
+      {(screenState === 'idle' || screenState === 'confirming_route') && (
+        <MapInterface
+          pickupLocationName={pickupLocationName}
+          destinationName={selectedDestination?.name}
+          onWhereToPress={() => setIsSearchModalVisible(true)}
+          onRecenterPress={handleRecenter}
+          onTogglePitch={toggleMapPitch}
+          mapPitch={mapPitch}
         />
-        <Button mode="contained" onPress={() => setScreenState('idle')} style={{ marginTop: 20 }}>
-          Start a New Search
-        </Button>
-      </ScreenWrapper>
-    );
-  }
+      )}
+      
+      <LocationSearchModal
+        visible={isSearchModalVisible}
+        onDismiss={() => setIsSearchModalVisible(false)}
+        pickupLocationName={pickupLocationName}
+        onPlaceSelected={handlePlaceSelected}
+      />
 
-  return null;
+      {screenState === 'confirming_route' && selectedDestination && routeDetails && (
+        <RouteConfirmationCard
+          destinationName={selectedDestination.name}
+          routeDetails={routeDetails}
+          onConfirm={handleConfirmAndFindMatches}
+          onCancel={handleNewSearch}
+        />
+      )}
+
+      <SearchingOverlay
+        visible={screenState === 'searching'}
+        onCancel={() => {
+          disconnect();
+          handleNewSearch();
+        }}
+      />
+      
+      <MatchFoundModal
+        visible={screenState === 'results'}
+        matches={matches}
+        onNewSearch={handleNewSearch}
+      />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
 });

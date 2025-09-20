@@ -38,9 +38,10 @@ export default function RideRequestSheet({
           />
           
           <AutocompleteInput
-            label="To? (Enter Destination)"
-            onPlaceSelected={onPlaceSelected}
-          />
+                      label="To? (Enter Destination)"
+                      onPlaceSelected={onPlaceSelected} onSuggestionsChange={function (suggestions: AutocompleteSuggestion[]): void {
+                          throw new Error('Function not implemented.');
+                      } }          />
           
           <Button
             mode="contained"

@@ -39,6 +39,11 @@ export default function ServicesLayout() {
           title: 'My Services Dashboard',
         }}
       />
+      <Stack.Screen 
+        name="applicants/[id]" 
+        options={{ title: 'Applicants' }} 
+      />
     </Stack>
+
   );
 }

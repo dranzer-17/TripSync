@@ -59,6 +59,10 @@ export interface ServiceApplication {
     id: number;
     title: string;
   };
+  cover_letter?: string;
+  resume_url?: string;
+  proposed_rate?: number;
+  application_date: string;
 }
 
 
@@ -169,5 +173,24 @@ export const getMyApplications = async (token: string): Promise<ServiceApplicati
         return response.data;
     } catch (error: any) {
         throw new Error(error.response?.data?.detail || 'Failed to fetch your applications.');
+    }
+};
+
+export const updateApplicationStatus = async (
+    token: string,
+    applicationId: number,
+    status: 'accepted' | 'rejected'
+): Promise<ServiceApplication> => {
+    try {
+        const response = await apiClient.put(`/services/applications/${applicationId}`, 
+            { status },
+            {
+                headers: { Authorization: `Bearer ${token}` },
+            }
+        );
+        return response.data;
+    } catch (error: any) {
+        console.error(`Update application ${applicationId} to ${status} failed:`, error.response?.data || error.message);
+        throw new Error(error.response?.data?.detail || 'Failed to update application status.');
     }
 };

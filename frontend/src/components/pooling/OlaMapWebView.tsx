@@ -57,17 +57,42 @@ const OlaMapWebView = forwardRef<WebView, OlaMapWebViewProps>(({ onMapReady, onM
           map.easeTo({ pitch: pitch, duration: 750 });
         };
 
+        // Updated drawRoute function - removed is_fallback parameter since we no longer use fallbacks
         window.drawRoute = (polyline) => {
-          if (map.getLayer('route')) { map.removeLayer('route'); map.removeSource('route'); }
+          // Clear existing route first
+          if (map.getLayer('route')) { 
+            map.removeLayer('route'); 
+            map.removeSource('route'); 
+          }
+          
+          // Add new route layer with proper styling
           map.addLayer({
-            'id': 'route', 'type': 'line',
-            'source': { 'type': 'geojson', 'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': polyline }}},
-            'paint': { 'line-color': '#00AEEF', 'line-width': 8 }
+            'id': 'route', 
+            'type': 'line',
+            'source': { 
+              'type': 'geojson', 
+              'data': { 
+                'type': 'Feature', 
+                'geometry': { 
+                  'type': 'LineString', 
+                  'coordinates': polyline 
+                }
+              }
+            },
+            'paint': { 
+              'line-color': '#00AEEF', 
+              'line-width': 8,
+              'line-cap': 'round',
+              'line-join': 'round'
+            }
           });
         };
         
         window.clearRoute = () => {
-          if (map.getLayer('route')) { map.removeLayer('route'); map.removeSource('route'); }
+          if (map.getLayer('route')) { 
+            map.removeLayer('route'); 
+            map.removeSource('route'); 
+          }
         };
 
         map.on('moveend', () => {
@@ -77,13 +102,19 @@ const OlaMapWebView = forwardRef<WebView, OlaMapWebViewProps>(({ onMapReady, onM
           }));
         });
         
-        window.updatePlayerView = (coords) => {
-           const position = [coords.lng, coords.lat];
-           if (!playerMarker) {
-             playerMarker = sdk.addMarker ? sdk.addMarker({ position: position, draggable: false }) : null;
-           } else {
-             playerMarker.setPosition && playerMarker.setPosition(position);
-           }
+        window.updatePlayerView = async (coords) => {
+          const position = [coords.lng, coords.lat];
+          if (!playerMarker) {
+            try {
+              playerMarker = await sdk.addMarker({ position: position, draggable: false });
+            } catch(e) {
+              console.error("Could not add player marker:", e);
+            }
+          } else {
+            if (playerMarker.setPosition) {
+              playerMarker.setPosition(position);
+            }
+          }
         };
 
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
@@ -94,7 +125,6 @@ const OlaMapWebView = forwardRef<WebView, OlaMapWebViewProps>(({ onMapReady, onM
     []
   );
 
-  // --- START OF CORRECTED BLOCK ---
   useEffect(() => {
     let locationSubscription: Location.LocationSubscription | null = null;
     
@@ -108,7 +138,6 @@ const OlaMapWebView = forwardRef<WebView, OlaMapWebViewProps>(({ onMapReady, onM
       locationSubscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 2000, distanceInterval: 5 },
         (loc) => {
-          // This 'const' was missing
           const { latitude: lat, longitude: lng } = loc.coords;
           const js = `window.updatePlayerView && window.updatePlayerView({ lng:${lng}, lat:${lat} }); true;`;
           
@@ -121,14 +150,12 @@ const OlaMapWebView = forwardRef<WebView, OlaMapWebViewProps>(({ onMapReady, onM
 
     startWatchingLocation();
 
-    // The cleanup function MUST be returned directly by the effect
     return () => {
       if (locationSubscription) {
         locationSubscription.remove();
       }
     };
   }, [ref]);
-  // --- END OF CORRECTED BLOCK ---
 
   return (
     <WebView

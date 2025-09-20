@@ -14,6 +14,7 @@ class RouteDetails(BaseModel):
     polyline: List[Tuple[float, float]]
     distance_meters: int
     duration_seconds: int
+    # Removed is_fallback since we're not using fallbacks anymore
 
 class RouteResponse(BaseModel):
     status: str

@@ -27,14 +27,14 @@ async def get_route(
         logger.error(f"Invalid start coordinates: {request_data.start_lat}, {request_data.start_lng}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid start coordinates: latitude must be between -90 and 90, longitude must be between -180 and 180",
+            detail="Invalid start coordinates: latitude must be between -90 and 90, longitude must be between -180 and 180",
         )
     
     if not (-90 <= request_data.end_lat <= 90) or not (-180 <= request_data.end_lng <= 180):
         logger.error(f"Invalid end coordinates: {request_data.end_lat}, {request_data.end_lng}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid end coordinates: latitude must be between -90 and 90, longitude must be between -180 and 180",
+            detail="Invalid end coordinates: latitude must be between -90 and 90, longitude must be between -180 and 180",
         )
     
     try:
@@ -46,10 +46,10 @@ async def get_route(
         )
 
         if not route_details:
-            logger.error("Route service returned None - no route found or API error")
+            logger.error("Route service returned None - no route found")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Could not find a route for the given locations. Please check that both locations are accessible by road and try again.",
+                detail="No route could be found between the specified locations. Please verify that both locations are accessible by road and try again with different locations.",
             )
 
         logger.info(f"Route found successfully: {route_details['distance_meters']}m, {route_details['duration_seconds']}s")
@@ -66,10 +66,10 @@ async def get_route(
         logger.error(f"Unexpected error in route endpoint: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while calculating the route. Please try again.",
+            detail="An unexpected error occurred while calculating the route. Please try again later.",
         )
 
-# Add a debug endpoint to test the Ola Maps API directly
+# Debug endpoint for testing OLA Maps API directly
 @router.get("/debug/ola-test")
 async def test_ola_api(
     start_lat: float,
@@ -89,6 +89,7 @@ async def test_ola_api(
         "origin": origin_str,
         "destination": destination_str,
         "api_key": settings.OLA_MAPS_API_KEY,
+        "mode": "driving",
         "alternatives": "false",
         "steps": "false", 
         "geometries": "polyline",
@@ -105,7 +106,8 @@ async def test_ola_api(
             return {
                 "status_code": response.status_code,
                 "request_url": str(response.url),
-                "response_text": response.text[:1000],  # First 1000 chars
+                "response_json": response.json() if response.status_code == 200 else None,
+                "response_text": response.text[:2000] if response.status_code != 200 else "Success",
                 "headers": dict(response.headers)
             }
             

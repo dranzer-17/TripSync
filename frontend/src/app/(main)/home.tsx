@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { useFocusEffect } from 'expo-router'; // Import useFocusEffect
+import { useFocusEffect } from 'expo-router';
 
 // --- Local Hooks & Context ---
 import { useLocation } from '../../hooks/useLocation';
@@ -10,8 +10,19 @@ import { useAuth } from '../../context/AuthContext';
 import { usePoolingSocket } from '../../hooks/usePoolingSocket';
 
 // --- API Service Functions & Types ---
-import { getAddressFromCoords, getPlaceDetails, AutocompleteSuggestion, PlaceDetails } from '../../services/locationService';
-import { getRouteDetails, RouteDetails, createRequestAndFindMatches, MatchedUser } from '../../services/poolingService';
+import {
+  getAddressFromCoords,
+  getPlaceDetails,
+  AutocompleteSuggestion,
+  PlaceDetails
+} from '../../services/locationService';
+import {
+  getRouteDetails,
+  RouteDetails,
+  MatchedUser,
+  createRequestAndFindMatches,
+  RouteResult // Import the resilient result type
+} from '../../services/poolingService';
 
 // --- UI Components ---
 import OlaMapWebView from '../../components/pooling/OlaMapWebView';
@@ -50,6 +61,8 @@ export default function PoolingScreen() {
       if (userLocation) {
         const coords = { lat: userLocation.coords.latitude, lng: userLocation.coords.longitude };
         flyTo(coords);
+      } else {
+        Alert.alert("Location Error", "Could not get your location. Please enable location services.");
       }
     })();
   }, [getUserLocation]);
@@ -61,13 +74,19 @@ export default function PoolingScreen() {
   };
 
   const handleRecenter = () => {
-    if (liveLocation) flyTo({ lat: liveLocation.coords.latitude, lng: liveLocation.coords.longitude });
+    if (liveLocation) {
+      flyTo({ lat: liveLocation.coords.latitude, lng: liveLocation.coords.longitude });
+    } else {
+        Alert.alert("Can't Recenter", "Your current location is not available yet.");
+    }
   };
 
   const toggleMapPitch = () => {
     const newPitch = mapPitch === 60 ? 0 : 60;
     setMapPitch(newPitch);
-    webViewRef.current?.injectJavaScript(`window.setMapPitch(${newPitch}); true;`);
+    if (isMapReady.current && webViewRef.current) {
+        webViewRef.current.injectJavaScript(`window.setMapPitch(${newPitch}); true;`);
+    }
   };
 
   const handleMapCenterChange = useCallback((coords: { lat: number; lng: number }) => {
@@ -88,36 +107,42 @@ export default function PoolingScreen() {
 
   const handlePlaceSelected = async (place: AutocompleteSuggestion) => {
     setIsSearchModalVisible(false);
+
     const details = await getPlaceDetails(place.place_id);
-    if (!details || !mapCenter || !token) return;
+    if (!details || !mapCenter || !token) {
+        Alert.alert("Error", "Could not get details for the selected location.");
+        return;
+    }
 
     setSelectedDestination(details);
+    const destinationCoords = details.geometry.location;
     
-    try {
-      const route = await getRouteDetails(token, {
-        start_lat: mapCenter.lat,
-        start_lng: mapCenter.lng,
-        end_lat: details.geometry.location.lat,
-        end_lng: details.geometry.location.lng,
-      });
-      setRouteDetails(route);
+    // Use the resilient getRouteDetails function
+    const result: RouteResult = await getRouteDetails(token, {
+      start_lat: mapCenter.lat,
+      start_lng: mapCenter.lng,
+      end_lat: destinationCoords.lat,
+      end_lng: destinationCoords.lng
+    });
 
-      const polylineString = JSON.stringify(route.polyline);
+    if (result.success && result.route) {
+      // If the API call was successful, store the route and draw it
+      setRouteDetails(result.route);
+      const polylineString = JSON.stringify(result.route.polyline);
       webViewRef.current?.injectJavaScript(`window.drawRoute(${polylineString}); true;`);
-      
-      const destCoords = details.geometry.location;
-      webViewRef.current?.injectJavaScript(`window.addOrUpdateDestinationMarker({lat: ${destCoords.lat}, lng: ${destCoords.lng}}); true;`);
-      
-      setScreenState('confirming_route');
-
-    } catch (error: any) {
-      Alert.alert('Route Error', error.message);
-      handleNewSearch();
+    } else {
+      // If the API call failed, log the error silently and proceed without a route
+      console.log("Could not fetch route, proceeding without it:", result.error);
+      setRouteDetails(null);
     }
+    
+    // Always add destination marker and move to confirmation screen
+    webViewRef.current?.injectJavaScript(`window.addOrUpdateDestinationMarker({lat: ${destinationCoords.lat}, lng: ${destinationCoords.lng}}); true;`);
+    setScreenState('confirming_route');
   };
 
   const handleConfirmAndFindMatches = async () => {
-    if (!mapCenter || !selectedDestination || !routeDetails || !token) {
+    if (!mapCenter || !selectedDestination || !token) {
         Alert.alert('Error', 'Missing trip details. Please start over.');
         return;
     }
@@ -151,22 +176,29 @@ export default function PoolingScreen() {
     setSelectedDestination(null);
     setRouteDetails(null);
     setMatches([]);
-    webViewRef.current?.injectJavaScript('window.clearRoute(); true;');
-    webViewRef.current?.injectJavaScript('window.clearDestinationMarker(); true;');
+    if (isMapReady.current && webViewRef.current) {
+        webViewRef.current.injectJavaScript('window.clearRoute(); true;');
+        webViewRef.current.injectJavaScript('window.clearDestinationMarker(); true;');
+    }
   };
 
   useFocusEffect(
     useCallback(() => {
-      // This will reset the screen to its initial state when the user navigates back to it
       handleNewSearch();
     }, [])
   );
 
   useEffect(() => {
     if (match) {
-        setMatches(prev => [...prev, match]);
-        setScreenState('results');
-        disconnect();
+      setMatches(prevMatches => {
+        const isAlreadyMatched = prevMatches.some(prevMatch => prevMatch.id === match.id);
+        if (isAlreadyMatched) {
+          return prevMatches;
+        }
+        return [...prevMatches, match];
+      });
+      setScreenState('results');
+      disconnect();
     }
   }, [match, disconnect]);
 
@@ -197,7 +229,7 @@ export default function PoolingScreen() {
         onPlaceSelected={handlePlaceSelected}
       />
 
-      {screenState === 'confirming_route' && selectedDestination && routeDetails && (
+      {screenState === 'confirming_route' && selectedDestination && (
         <RouteConfirmationCard
           destinationName={selectedDestination.name}
           routeDetails={routeDetails}

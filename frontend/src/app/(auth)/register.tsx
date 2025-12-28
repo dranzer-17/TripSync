@@ -1,9 +1,10 @@
 // src/app/(auth)/register.tsx
 
 import React, { useState } from 'react';
-import { StyleSheet, Alert } from 'react-native';
+import { StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Text, TextInput, Button } from 'react-native-paper';
-import { Link, useRouter } from 'expo-router';
+import { Link, useRouter, Stack } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import { register } from '../../services/authService';
 
@@ -49,10 +50,25 @@ export default function RegisterScreen() {
   };
 
   return (
-    <ScreenWrapper style={styles.container}>
-      <Text variant="headlineLarge" style={styles.title}>
-        Create Account
-      </Text>
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: 'Sign Up',
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backButton}
+            >
+              <Ionicons name="arrow-back" size={24} color="#6200EE" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <ScreenWrapper style={styles.container}>
+        <Text variant="headlineLarge" style={styles.title}>
+          Create Account
+        </Text>
       
       {/* Connect TextInput components to state */}
       <TextInput
@@ -104,7 +120,8 @@ export default function RegisterScreen() {
           Already have an account? Login
         </Button>
       </Link>
-    </ScreenWrapper>
+      </ScreenWrapper>
+    </>
   );
 }
 
@@ -122,5 +139,9 @@ const styles = StyleSheet.create({
     },
     button: {
         marginTop: 10,
+    },
+    backButton: {
+        marginLeft: 16,
+        padding: 8,
     },
 });

@@ -1,9 +1,10 @@
 // src/app/(auth)/login.tsx
 
 import React, { useState } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Text, TextInput, Button } from 'react-native-paper';
-import { Link, useRouter } from 'expo-router';
+import { Link, useRouter, Stack } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import apiClient from '../../services/api'; // We'll use the base client
 import { useAuth } from '../../context/AuthContext';
@@ -52,10 +53,25 @@ export default function LoginScreen() {
   };
 
   return (
-    <ScreenWrapper style={styles.container}>
-      <Text variant="headlineLarge" style={styles.title}>
-        TripSync
-      </Text>
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: 'Login',
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backButton}
+            >
+              <Ionicons name="arrow-back" size={24} color="#6200EE" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      <ScreenWrapper style={styles.container}>
+        <Text variant="headlineLarge" style={styles.title}>
+          TripSync
+        </Text>
 
       {/* Connect TextInputs to state */}
       <TextInput
@@ -92,7 +108,8 @@ export default function LoginScreen() {
           Don't have an account? Sign Up
         </Button>
       </Link>
-    </ScreenWrapper>
+      </ScreenWrapper>
+    </>
   );
 }
 
@@ -110,5 +127,9 @@ const styles = StyleSheet.create({
     },
     button: {
         marginTop: 10,
+    },
+    backButton: {
+        marginLeft: 16,
+        padding: 8,
     },
 });

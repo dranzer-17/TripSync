@@ -37,9 +37,32 @@ async def _get_distances_from_ola(origin: tuple, destinations: List[tuple]) -> L
         "api_key": settings.OLA_MAPS_API_KEY
     }
 
-    async with httpx.AsyncClient() as client:
+    # Configure proxy if available
+    proxy_config = settings.OLA_MAPS_PROXY if hasattr(settings, 'OLA_MAPS_PROXY') and settings.OLA_MAPS_PROXY else None
+    
+    client_config = {
+        "timeout": 20.0,
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://olamaps.io/"
+        },
+        "verify": False
+    }
+    
+    if proxy_config:
+        client_config["proxies"] = {"https://": proxy_config, "http://": proxy_config}
+    
+    async with httpx.AsyncClient(**client_config) as client:
         try:
             response = await client.get(OLA_DISTANCE_MATRIX_BASIC_API_URL, params=params)
+            
+            # Check if response is a carrier filter block page
+            response_text = response.text
+            if "Web Filter Violation" in response_text or "Access Blocked" in response_text:
+                print(f"OLA Maps API Error: Carrier filter blocked the request")
+                return [None] * len(destinations)
+            
             response.raise_for_status()
             results = response.json()
             

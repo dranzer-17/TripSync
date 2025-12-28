@@ -119,10 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     const inAuthGroup = String(segments[0]) === '(auth)';
+    const currentScreen = segments[1]; // e.g., 'login', 'register', 'landing'
+    
     if (token && inAuthGroup) {
       (router as any).replace('/(main)/home');
     } else if (!token && !inAuthGroup) {
-      (router as any).replace('/(auth)/login');
+      (router as any).replace('/(auth)/landing');
+    } else if (!token && inAuthGroup && currentScreen !== 'landing' && currentScreen !== 'login' && currentScreen !== 'register') {
+      // If in auth group but not on a valid auth screen, redirect to landing
+      (router as any).replace('/(auth)/landing');
     }
   }, [token, segments, isLoading, router]);
   

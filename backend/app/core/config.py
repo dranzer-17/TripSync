@@ -1,5 +1,6 @@
 # backend/app/core/config.py
 
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -18,5 +19,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     # -----------------------------
     OLA_MAPS_API_KEY: str
+    # Optional proxy for OLA Maps API (if carrier blocks)
+    OLA_MAPS_PROXY: Optional[str] = None
 
 settings = Settings()

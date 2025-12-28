@@ -96,12 +96,36 @@ async def test_ola_api(
         "overview": "full"
     }
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # Configure proxy if available
+    proxy_config = settings.OLA_MAPS_PROXY if hasattr(settings, 'OLA_MAPS_PROXY') and settings.OLA_MAPS_PROXY else None
+    
+    client_config = {
+        "timeout": 30.0,
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://olamaps.io/"
+        },
+        "verify": False
+    }
+    
+    if proxy_config:
+        client_config["proxies"] = {"https://": proxy_config, "http://": proxy_config}
+    
+    async with httpx.AsyncClient(**client_config) as client:
         try:
             response = await client.get(
                 "https://api.olamaps.io/routing/v1/directions",
                 params=params
             )
+            
+            # Check if response is a carrier filter block page
+            if "Web Filter Violation" in response.text or "Access Blocked" in response.text:
+                return {
+                    "error": "Carrier filter is blocking api.olamaps.io. Please use a VPN or contact your carrier.",
+                    "status_code": 403,
+                    "params_sent": params
+                }
             
             return {
                 "status_code": response.status_code,

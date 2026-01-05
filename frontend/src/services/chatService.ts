@@ -4,7 +4,7 @@ import apiClient from './api';
 
 export interface Message {
   id: number;
-  connection_id: number;
+  conversation_id: number;
   sender_id: number;
   sender_name: string;
   content: string;
@@ -18,14 +18,14 @@ export interface MessageListResponse {
 
 export const sendMessage = async (
   token: string,
-  connectionId: number,
+  receiverId: number,
   content: string
 ): Promise<Message> => {
   try {
     const response = await apiClient.post(
       '/chat/messages',
       {
-        connection_id: connectionId,
+        receiver_id: receiverId,
         content: content,
       },
       { headers: { Authorization: `Bearer ${token}` } }
@@ -39,11 +39,11 @@ export const sendMessage = async (
 
 export const getMessages = async (
   token: string,
-  connectionId: number
+  conversationId: number
 ): Promise<Message[]> => {
   try {
     const response = await apiClient.get<MessageListResponse>(
-      `/chat/messages/${connectionId}`,
+      `/chat/messages/${conversationId}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     return response.data.messages;
@@ -55,16 +55,32 @@ export const getMessages = async (
 
 export const markMessagesAsRead = async (
   token: string,
-  connectionId: number
+  conversationId: number
 ): Promise<void> => {
   try {
     await apiClient.post(
-      `/chat/messages/${connectionId}/read`,
+      `/chat/messages/${conversationId}/read`,
       {},
       { headers: { Authorization: `Bearer ${token}` } }
     );
   } catch (error: any) {
     console.error('Mark as read error:', error.response?.data || error.message);
+  }
+};
+
+export const findOrCreateConversation = async (
+  token: string,
+  partnerId: number
+): Promise<{ conversation_id: number; partner: { id: number; full_name: string; email: string } }> => {
+  try {
+    const response = await apiClient.get(
+      `/chat/conversations/find-or-create?partner_id=${partnerId}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Find or create conversation error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to find or create conversation.');
   }
 };
 
@@ -75,7 +91,6 @@ export interface ConversationPartner {
   email: string;
   year_of_study: number | null;
   bio: string | null;
-  request_id: number;
 }
 
 export interface LastMessage {
@@ -85,7 +100,7 @@ export interface LastMessage {
 }
 
 export interface Conversation {
-  connection_id: number;
+  conversation_id: number;
   partner: ConversationPartner;
   last_message: LastMessage | null;
   unread_count: number;

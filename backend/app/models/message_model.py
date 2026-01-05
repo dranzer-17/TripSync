@@ -10,12 +10,12 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    connection_id = Column(Integer, ForeignKey("pooling_connections.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     is_read = Column(Boolean, default=False)
 
     # Relationships
-    connection = relationship("PoolingConnection")
+    conversation = relationship("Conversation", back_populates="messages")
     sender = relationship("User")

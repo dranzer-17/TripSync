@@ -1,11 +1,11 @@
 # backend/app/routes/message_router.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.db.database import get_db
-from app.services import auth_service, message_service
+from app.services import auth_service, message_service, conversation_service
 from app.schemas import message_schema
 from app.models import user_model
 
@@ -18,7 +18,7 @@ async def send_message(
     current_user: user_model.User = Depends(auth_service.get_current_user),
 ):
     """
-    Send a chat message in a connection.
+    Send a chat message. Creates conversation if it doesn't exist.
     """
     message = message_service.create_message(
         db=db,
@@ -28,7 +28,7 @@ async def send_message(
     
     return message_schema.Message(
         id=message.id,
-        connection_id=message.connection_id,
+        conversation_id=message.conversation_id,
         sender_id=message.sender_id,
         sender_name=current_user.full_name,
         content=message.content,
@@ -37,25 +37,25 @@ async def send_message(
     )
 
 
-@router.get("/messages/{connection_id}", response_model=message_schema.MessageListResponse)
+@router.get("/messages/{conversation_id}", response_model=message_schema.MessageListResponse)
 async def get_messages(
-    connection_id: int,
+    conversation_id: int,
     db: Session = Depends(get_db),
     current_user: user_model.User = Depends(auth_service.get_current_user),
 ):
     """
-    Get all messages for a connection.
+    Get all messages for a conversation.
     """
-    messages = message_service.get_messages_for_connection(
+    messages = message_service.get_messages_for_conversation(
         db=db,
         user=current_user,
-        connection_id=connection_id
+        conversation_id=conversation_id
     )
     
     message_list = [
         message_schema.Message(
             id=msg.id,
-            connection_id=msg.connection_id,
+            conversation_id=msg.conversation_id,
             sender_id=msg.sender_id,
             sender_name=msg.sender.full_name,
             content=msg.content,
@@ -68,19 +68,19 @@ async def get_messages(
     return message_schema.MessageListResponse(messages=message_list)
 
 
-@router.post("/messages/{connection_id}/read")
+@router.post("/messages/{conversation_id}/read")
 async def mark_messages_read(
-    connection_id: int,
+    conversation_id: int,
     db: Session = Depends(get_db),
     current_user: user_model.User = Depends(auth_service.get_current_user),
 ):
     """
-    Mark all messages in a connection as read.
+    Mark all messages in a conversation as read.
     """
     count = message_service.mark_messages_as_read(
         db=db,
         user=current_user,
-        connection_id=connection_id
+        conversation_id=conversation_id
     )
     
     return {"marked_read": count}
@@ -93,7 +93,7 @@ async def get_recent_conversations(
 ):
     """
     Get all recent conversations for the current user.
-    Returns connections with last message and unread count.
+    Returns conversations with last message and unread count.
     """
     conversations = message_service.get_recent_conversations(
         db=db,
@@ -101,3 +101,32 @@ async def get_recent_conversations(
     )
     
     return {"conversations": conversations}
+
+
+@router.get("/conversations/find-or-create")
+async def find_or_create_conversation(
+    partner_id: int = Query(..., description="The ID of the user to chat with"),
+    db: Session = Depends(get_db),
+    current_user: user_model.User = Depends(auth_service.get_current_user),
+):
+    """
+    Find or create a conversation between current user and partner.
+    Returns conversation_id.
+    """
+    conversation = conversation_service.find_or_create_conversation(
+        db=db,
+        user1_id=current_user.id,
+        user2_id=partner_id
+    )
+    
+    # Get partner info
+    partner = conversation.user1 if conversation.user2_id == current_user.id else conversation.user2
+    
+    return {
+        "conversation_id": conversation.id,
+        "partner": {
+            "id": partner.id,
+            "full_name": partner.full_name,
+            "email": partner.email,
+        }
+    }

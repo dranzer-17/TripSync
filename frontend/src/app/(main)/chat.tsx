@@ -3,10 +3,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, TouchableOpacity, SafeAreaView } from 'react-native';
 import { Text, TextInput, Avatar } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Message, getMessages, sendMessage, markMessagesAsRead } from '../../services/chatService';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { Message, getMessages, sendMessage, markMessagesAsRead, findOrCreateConversation } from '../../services/chatService';
 import { useAuth } from '../../context/AuthContext';
-import { useChatSocket } from '../../hooks/useChatSocket';
 
 const COLORS = {
   primary: '#6A5AE0',
@@ -24,99 +23,134 @@ export default function ChatScreen() {
   const router = useRouter();
   const { token, user } = useAuth();
   const params = useLocalSearchParams<{
-    connectionId: string;
+    conversationId?: string;
     partnerId: string;
     partnerName: string;
   }>();
   
-  const { chatMessage, sendChatMessage, connect, isConnected } = useChatSocket();
-  
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
   const flatListRef = useRef<FlatList>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const connectionId = parseInt(params.connectionId || '0');
   const partnerId = parseInt(params.partnerId || '0');
   const partnerName = params.partnerName || 'Partner';
+  const initialConversationId = params.conversationId ? parseInt(params.conversationId) : null;
 
-  // Ensure WebSocket is connected
+  // Find or create conversation on mount
   useEffect(() => {
-    if (!isConnected && token) {
-      console.log('Chat WebSocket not connected, connecting...');
-      connect(token);
-    }
-  }, [isConnected, token, connect]);
+    const initializeConversation = async () => {
+      if (!token || !user || !partnerId) {
+        setLoading(false);
+        return;
+      }
 
-  // Load messages on mount
+      try {
+        let convId = initialConversationId;
+        
+        // If no conversation ID provided, find or create one
+        if (!convId) {
+          const conversation = await findOrCreateConversation(token, partnerId);
+          convId = conversation.conversation_id;
+        }
+        
+        setConversationId(convId);
+        setLoading(false);
+      } catch (error) {
+        console.error('Failed to initialize conversation:', error);
+        setLoading(false);
+      }
+    };
+
+    initializeConversation();
+  }, [token, user, partnerId, initialConversationId]);
+
+  // Load messages function
   const loadMessages = useCallback(async () => {
-    if (!token || !connectionId) return;
+    if (!token || !conversationId) return;
     
     try {
-      const fetchedMessages = await getMessages(token, connectionId);
+      const fetchedMessages = await getMessages(token, conversationId);
       setMessages(fetchedMessages);
-      await markMessagesAsRead(token, connectionId);
+      await markMessagesAsRead(token, conversationId);
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: false });
       }, 100);
     } catch (error) {
       console.error('Failed to load messages:', error);
     }
-  }, [token, connectionId]);
+  }, [token, conversationId]);
 
+  // Load messages when conversation is ready
   useEffect(() => {
-    loadMessages();
-  }, [loadMessages]);
-
-  // Handle incoming WebSocket messages
-  useEffect(() => {
-    if (chatMessage && chatMessage.connection_id === connectionId) {
-      const newMessage: Message = {
-        id: chatMessage.message_id || Date.now(),
-        connection_id: connectionId,
-        sender_id: chatMessage.sender_id || 0,
-        sender_name: partnerName,
-        content: chatMessage.content || '',
-        created_at: chatMessage.created_at || new Date().toISOString(),
-        is_read: false,
-      };
-      
-      setMessages((prev) => [...prev, newMessage]);
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+    if (conversationId) {
+      loadMessages();
     }
-  }, [chatMessage, connectionId, partnerName]);
+  }, [conversationId, loadMessages]);
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || !token || !user) return;
+  // Polling: Fetch messages every 2 seconds when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (!conversationId) return;
 
-    const messageContent = inputText.trim();
+      // Load immediately
+      loadMessages();
+
+      // Set up polling every 2 seconds
+      pollingIntervalRef.current = setInterval(() => {
+        loadMessages();
+      }, 2000);
+
+      // Cleanup on unmount or when screen loses focus
+      return () => {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
+    }, [conversationId, loadMessages])
+  );
+
+  const handleSendMessage = async (messageText?: string) => {
+    const messageContent = messageText || inputText.trim();
+    if (!messageContent || !token || !user || !partnerId) return;
+
     setInputText('');
     setSending(true);
 
     try {
-      const newMessage = await sendMessage(token, connectionId, messageContent);
-      setMessages((prev) => [...prev, newMessage]);
+      const newMessage = await sendMessage(token, partnerId, messageContent);
       
-      // Send via WebSocket for real-time delivery
-      if (isConnected) {
-        sendChatMessage(partnerId, connectionId, messageContent, newMessage.id);
-        console.log('Message sent via chat WebSocket');
-      } else {
-        console.warn('Chat WebSocket not connected, message saved to DB only');
+      // Update conversation ID if it was just created
+      if (!conversationId && newMessage.conversation_id) {
+        setConversationId(newMessage.conversation_id);
       }
+      
+      setMessages((prev) => [...prev, newMessage]);
 
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     } catch (error) {
       console.error('Failed to send message:', error);
-      setInputText(messageContent);
+      if (!messageText) {
+        setInputText(messageContent);
+      }
     } finally {
       setSending(false);
     }
   };
+
+  const quickMessages = [
+    "Where are you?",
+    "I'm on my way",
+    "See you soon",
+    "Running late",
+    "I'm here"
+  ];
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (!user) return null;
@@ -157,11 +191,21 @@ export default function ChatScreen() {
     );
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading conversation...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.push('/(main)/chats')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         
@@ -211,6 +255,28 @@ export default function ChatScreen() {
           }
         />
 
+        {/* Quick Message Pills */}
+        {inputText.length === 0 && (
+          <View style={styles.quickMessagesContainer}>
+            <FlatList
+              data={quickMessages}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickMessagesList}
+              keyExtractor={(item, index) => `quick-${index}`}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.quickMessagePill}
+                  onPress={() => handleSendMessage(item)}
+                  disabled={sending}
+                >
+                  <Text style={styles.quickMessageText}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        )}
+
         {/* Input */}
         <View style={styles.inputContainer}>
           <TouchableOpacity style={styles.emojiButton}>
@@ -235,7 +301,7 @@ export default function ChatScreen() {
               styles.sendButton,
               inputText.trim() && styles.sendButtonActive
             ]}
-            onPress={handleSendMessage}
+            onPress={() => handleSendMessage()}
             disabled={!inputText.trim() || sending}
           >
             <Ionicons
@@ -372,6 +438,16 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 8,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -405,5 +481,28 @@ const styles = StyleSheet.create({
   },
   sendButtonActive: {
     backgroundColor: COLORS.primary,
+  },
+  quickMessagesContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.white,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  quickMessagesList: {
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  quickMessagePill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: COLORS.lightPurple,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  quickMessageText: {
+    fontSize: 14,
+    color: COLORS.primary,
+    fontWeight: '500',
   },
 });

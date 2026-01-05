@@ -5,12 +5,12 @@ from datetime import datetime
 from typing import Optional
 
 class MessageCreate(BaseModel):
-    connection_id: int
+    receiver_id: int
     content: str
 
 class Message(BaseModel):
     id: int
-    connection_id: int
+    conversation_id: int
     sender_id: int
     sender_name: str
     content: str

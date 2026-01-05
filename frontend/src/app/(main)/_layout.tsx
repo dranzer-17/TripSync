@@ -1,13 +1,23 @@
 // src/app/(main)/_layout.tsx
 
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, useSegments, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from 'react-native-paper';
 import { Platform, View, Animated } from 'react-native';
 
 export default function MainLayout() {
   const theme = useTheme();
+  const segments = useSegments();
+  const pathname = usePathname();
+  
+  // Check if we're on the chat screen - if so, highlight the chats tab
+  // Check both segments and pathname to be sure
+  const isOnChatScreen = React.useMemo(() => {
+    const segmentsStr = segments.join('/');
+    const pathStr = pathname || '';
+    return segmentsStr.includes('chat') || pathStr.includes('/chat') || pathStr.includes('chat');
+  }, [segments, pathname]);
 
   const TabIcon = ({ focused, iconName, size }: { focused: boolean; iconName: any; size: number }) => {
     const animatedValue = new Animated.Value(focused ? 1 : 0);
@@ -125,9 +135,11 @@ export default function MainLayout() {
         name="chats"
         options={{
           title: 'Chats',
-          tabBarIcon: ({ size, focused }) => (
-            <TabIcon focused={focused} iconName="chatbubbles" size={size} />
-          ),
+          tabBarIcon: ({ size, focused }) => {
+            // Highlight chats tab when on chat screen OR when chats tab is focused
+            const shouldHighlight = isOnChatScreen || focused;
+            return <TabIcon focused={shouldHighlight} iconName="chatbubbles" size={size} />;
+          },
           headerShown: false,
         }}
       />

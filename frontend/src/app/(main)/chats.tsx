@@ -55,8 +55,8 @@ export default function ChatsScreen() {
       
       // Convert to ChatItem format
       const chatItems: ChatItem[] = conversations.map((conv: Conversation) => ({
-        id: conv.connection_id,
-        connectionId: conv.connection_id,
+        id: conv.conversation_id,
+        connectionId: conv.conversation_id, // Keep for compatibility, but it's actually conversation_id
         partnerId: conv.partner.id,
         partnerName: conv.partner.full_name,
         lastMessage: conv.last_message?.content || 'No messages yet',
@@ -121,7 +121,7 @@ export default function ChatsScreen() {
     router.push({
       pathname: '/(main)/chat',
       params: {
-        connectionId: chat.connectionId.toString(),
+        conversationId: chat.connectionId.toString(), // This is actually conversation_id
         partnerId: chat.partnerId.toString(),
         partnerName: chat.partnerName,
       },

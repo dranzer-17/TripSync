@@ -451,13 +451,16 @@ export default function PoolingScreen() {
     }
   };
 
-  const handleStartChat = () => {
+  const handleStartChat = async () => {
     if (!activeConnection) return;
     
+    // Close the modal first
+    setScreenState('active_ride');
+    
+    // Navigate directly to chat screen - expo-router will handle tab switching
     router.push({
       pathname: '/(main)/chat',
       params: {
-        connectionId: activeConnection.id.toString(),
         partnerId: activeConnection.partner.id.toString(),
         partnerName: activeConnection.partner.full_name,
       },

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 // --- Local Hooks & Context ---
 import { useLocation } from '../../hooks/useLocation';
@@ -21,7 +21,12 @@ import {
   RouteDetails,
   MatchedUser,
   createRequestAndFindMatches,
-  RouteResult // Import the resilient result type
+  RouteResult,
+  sendConnectionRequest,
+  respondToConnection,
+  getActiveConnection,
+  cancelPoolingRequest,
+  ActiveConnection
 } from '../../services/poolingService';
 
 // --- UI Components ---
@@ -31,14 +36,17 @@ import LocationSearchModal from '../../components/pooling/LocationSearchModal';
 import RouteConfirmationCard from '../../components/pooling/RouteConfirmationCard';
 import SearchingOverlay from '../../components/pooling/SearchingOverlay';
 import MatchFoundModal from '../../components/pooling/MatchFoundModal';
+import ActiveRideView from '../../components/pooling/ActiveRideView';
+import ActiveConnectionModal from '../../components/pooling/ActiveConnectionModal';
 
-type ScreenState = 'idle' | 'confirming_route' | 'searching' | 'results';
+type ScreenState = 'idle' | 'confirming_route' | 'searching' | 'results' | 'connection_modal' | 'active_ride';
 type MapPitch = 60 | 0;
 
 export default function PoolingScreen() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const router = useRouter();
   const { location: liveLocation, getUserLocation } = useLocation();
-  const { match, connect, disconnect } = usePoolingSocket(token);
+  const { match, connectionUpdate, chatMessage, connect, disconnect, clearMatch, sendWebSocketMessage } = usePoolingSocket(token);
 
   const [isSearchModalVisible, setIsSearchModalVisible] = useState(false);
   const [screenState, setScreenState] = useState<ScreenState>('idle');
@@ -48,9 +56,125 @@ export default function PoolingScreen() {
   const [routeDetails, setRouteDetails] = useState<RouteDetails | null>(null);
   const [matches, setMatches] = useState<MatchedUser[]>([]);
   const [mapPitch, setMapPitch] = useState<MapPitch>(60);
+  const [activeConnection, setActiveConnection] = useState<ActiveConnection | null>(null);
+  const [currentRequestId, setCurrentRequestId] = useState<number | null>(null);
+  const [showPartnerProfile, setShowPartnerProfile] = useState(false);
 
   const webViewRef = useRef<WebView>(null);
   const isMapReady = useRef(false);
+
+  // --- Check for active connection on mount ---
+  useEffect(() => {
+    const checkActiveConnection = async () => {
+      if (!token) return;
+      try {
+        console.log('Checking for active connection on mount...');
+        const result = await getActiveConnection(token);
+        console.log('Active connection result:', result);
+        if (result.connection) {
+          console.log('Found active connection, setting state', {
+            connectionId: result.connection.id,
+            partnerId: result.connection.partner.id,
+            partnerRequestId: result.connection.partner.request_id,
+            userRequestId: result.connection.user_request_id
+          });
+          setActiveConnection(result.connection);
+          setCurrentRequestId(result.connection.user_request_id); // Use own request ID for end ride
+          setScreenState('active_ride');
+        } else {
+          console.log('No active connection found');
+        }
+      } catch (error) {
+        console.log('Error checking active connection:', error);
+      }
+    };
+    checkActiveConnection();
+  }, [token]);
+
+  // --- Handle WebSocket connection updates ---
+  useEffect(() => {
+    if (!connectionUpdate) return;
+
+    const { type, data } = connectionUpdate;
+
+    if (type === 'request_sent') {
+      console.log('Request sent successfully:', data);
+      // Update the match to show pending_sent status
+      setMatches(prevMatches => {
+        const updated = prevMatches.map(m => 
+          m.id === data.to_user?.id
+            ? { ...m, connection_status: 'pending_sent', connection_id: data.connection_id }
+            : m
+        );
+        console.log('Updated matches after request sent:', updated);
+        return updated;
+      });
+    } else if (type === 'request_received') {
+      console.log('Connection request received:', data);
+      // Refresh matches to show the pending request
+      setMatches(prevMatches => {
+        const updated = prevMatches.map(m => 
+          m.id === data.from_user?.id
+            ? { ...m, connection_status: 'pending_received', connection_id: data.connection_id }
+            : m
+        );
+        console.log('Updated matches after request received:', updated);
+        return updated;
+      });
+    } else if (type === 'approved') {
+      // Connection approved, convert partner data to ActiveConnection
+      if (data.partner) {
+        const userRequestId = data.user_request_id ?? currentRequestId;
+        if (!userRequestId) {
+          console.warn('Approved connection without user_request_id');
+          return;
+        }
+        const activeConn: ActiveConnection = {
+          id: data.connection_id,
+          status: 'approved',
+          created_at: new Date().toISOString(),
+          user_request_id: userRequestId,
+          partner: {
+            id: data.partner.id,
+            full_name: data.partner.full_name,
+            phone_number: data.partner.phone_number || null,
+            email: data.partner.email || null,
+            year_of_study: data.partner.year_of_study || null,
+            bio: data.partner.bio || null,
+            request_id: data.partner.request_id
+          }
+        };
+        setActiveConnection(activeConn);
+        setCurrentRequestId(userRequestId);
+        setScreenState('connection_modal'); // Show modal first
+        disconnect();
+      }
+    } else if (type === 'rejected') {
+      // Update match status to rejected
+      setMatches(prevMatches =>
+        prevMatches.map(m =>
+          m.connection_id === data.connection_id
+            ? { ...m, connection_status: 'rejected' }
+            : m
+        )
+      );
+    } else if (type === 'cancelled' || type === 'ride_cancelled') {
+      // Partner cancelled, go back to idle
+      setActiveConnection(null);
+      setScreenState('idle');
+      setCurrentRequestId(null);
+      setMatches([]);
+      if (type === 'ride_cancelled') {
+        Alert.alert(
+          'Ride Ended',
+          `${data.by_user?.full_name || 'Your partner'} has ended the ride.`,
+          [{ text: 'OK', onPress: handleNewSearch }]
+        );
+      } else {
+        handleNewSearch();
+      }
+    }
+  }, [connectionUpdate, token]);
 
   // --- Map and Location Logic ---
 
@@ -106,39 +230,72 @@ export default function PoolingScreen() {
   // --- Ride Logic ---
 
   const handlePlaceSelected = async (place: AutocompleteSuggestion) => {
-    setIsSearchModalVisible(false);
-
-    const details = await getPlaceDetails(place.place_id);
-    if (!details || !mapCenter || !token) {
-        Alert.alert("Error", "Could not get details for the selected location.");
-        return;
-    }
-
-    setSelectedDestination(details);
-    const destinationCoords = details.geometry.location;
+    console.log('Place selected:', place);
     
-    // Use the resilient getRouteDetails function
-    const result: RouteResult = await getRouteDetails(token, {
-      start_lat: mapCenter.lat,
-      start_lng: mapCenter.lng,
-      end_lat: destinationCoords.lat,
-      end_lng: destinationCoords.lng
-    });
+    try {
+      const details = await getPlaceDetails(place.place_id);
+      console.log('Place details received:', details);
+      
+      if (!details) {
+          console.error('Place details is null');
+          Alert.alert("Error", "Could not get details for the selected location.");
+          return;
+      }
+      
+      if (!details.geometry || !details.geometry.location) {
+          console.error('Missing geometry in place details:', details);
+          Alert.alert("Error", "Invalid location data received.");
+          return;
+      }
+      
+      if (!mapCenter) {
+          console.error('Map center is not set');
+          Alert.alert("Error", "Please wait for the map to load your location.");
+          return;
+      }
+      
+      if (!token) {
+          console.error('Token is missing');
+          Alert.alert("Error", "Authentication error. Please log in again.");
+          return;
+      }
 
-    if (result.success && result.route) {
-      // If the API call was successful, store the route and draw it
-      setRouteDetails(result.route);
-      const polylineString = JSON.stringify(result.route.polyline);
-      webViewRef.current?.injectJavaScript(`window.drawRoute(${polylineString}); true;`);
-    } else {
-      // If the API call failed, log the error silently and proceed without a route
-      console.log("Could not fetch route, proceeding without it:", result.error);
-      setRouteDetails(null);
+      // Only close the modal after we've confirmed the details are valid
+      setIsSearchModalVisible(false);
+      
+      setSelectedDestination(details);
+      const destinationCoords = details.geometry.location;
+      
+      // Fetch route details now that the Directions API is fixed
+      console.log('Fetching route details...');
+      const routeResult = await getRouteDetails(token, {
+        start_lat: mapCenter.lat,
+        start_lng: mapCenter.lng,
+        end_lat: destinationCoords.lat,
+        end_lng: destinationCoords.lng,
+      });
+      
+      if (routeResult.success && routeResult.route) {
+        console.log('Route details received:', routeResult.route);
+        setRouteDetails(routeResult.route);
+        // Draw route on map
+        webViewRef.current?.injectJavaScript(
+          `window.drawRoute(${JSON.stringify(routeResult.route.polyline)}); true;`
+        );
+      } else {
+        console.warn('Route fetch failed:', routeResult.error);
+        setRouteDetails(null);
+      }
+      
+      // Add destination marker and move to confirmation screen
+      console.log('Adding destination marker and changing screen state...');
+      webViewRef.current?.injectJavaScript(`window.addOrUpdateDestinationMarker({lat: ${destinationCoords.lat}, lng: ${destinationCoords.lng}}); true;`);
+      setScreenState('confirming_route');
+      console.log('Screen state set to confirming_route');
+    } catch (error: any) {
+      console.error('Error in handlePlaceSelected:', error);
+      Alert.alert("Error", error.message || "Failed to process location selection");
     }
-    
-    // Always add destination marker and move to confirmation screen
-    webViewRef.current?.injectJavaScript(`window.addOrUpdateDestinationMarker({lat: ${destinationCoords.lat}, lng: ${destinationCoords.lng}}); true;`);
-    setScreenState('confirming_route');
   };
 
   const handleConfirmAndFindMatches = async () => {
@@ -159,10 +316,12 @@ export default function PoolingScreen() {
             destination_name: selectedDestination.name,
         });
 
+        setCurrentRequestId(response.request_id);
+        
         if (response.matches.length > 0) {
             setMatches(response.matches);
             setScreenState('results');
-            disconnect();
+            // Keep WebSocket connected so users can receive request notifications
         }
     } catch (error: any) {
         Alert.alert('Search Failed', error.message);
@@ -171,22 +330,150 @@ export default function PoolingScreen() {
     }
   };
   
-  const handleNewSearch = () => {
+  const handleNewSearch = async () => {
+    console.log('handleNewSearch called - resetting to idle state');
+    
+    // Disconnect WebSocket when starting new search
+    disconnect();
+    
+    // Clear the match state first to prevent useEffect from re-triggering
+    clearMatch();
+    
+    // Cancel the active request on the backend if it exists
+    if (token && currentRequestId) {
+      try {
+        await cancelPoolingRequest(token, currentRequestId);
+        console.log('Pooling request cancelled on backend');
+      } catch (error: any) {
+        console.error('Failed to cancel pooling request:', error.message);
+      }
+    }
+    
     setScreenState('idle');
     setSelectedDestination(null);
     setRouteDetails(null);
     setMatches([]);
+    setCurrentRequestId(null);
+    setActiveConnection(null);
     if (isMapReady.current && webViewRef.current) {
         webViewRef.current.injectJavaScript('window.clearRoute(); true;');
         webViewRef.current.injectJavaScript('window.clearDestinationMarker(); true;');
     }
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      handleNewSearch();
-    }, [])
-  );
+  // --- Connection Management ---
+  
+  const handleSendRequest = async (targetRequestId: number) => {
+    console.log('handleSendRequest called for request ID:', targetRequestId);
+    if (!token) {
+      console.error('No token available');
+      return;
+    }
+    try {
+      console.log('Sending connection request...');
+      await sendConnectionRequest(token, targetRequestId);
+      console.log('Connection request sent successfully');
+      // Update local state
+      setMatches(prevMatches =>
+        prevMatches.map(m =>
+          m.request_id === targetRequestId
+            ? { ...m, connection_status: 'pending_sent' }
+            : m
+        )
+      );
+    } catch (error: any) {
+      console.error('Error sending request:', error);
+      Alert.alert('Error', error.message);
+    }
+  };
+
+  const handleApprove = async (connectionId: number) => {
+    if (!token) return;
+    try {
+      await respondToConnection(token, connectionId, 'approve');
+      // WebSocket will handle the transition to active_ride
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    }
+  };
+
+  const handleReject = async (connectionId: number) => {
+    if (!token) return;
+    try {
+      await respondToConnection(token, connectionId, 'reject');
+      setMatches(prevMatches =>
+        prevMatches.map(m =>
+          m.connection_id === connectionId
+            ? { ...m, connection_status: 'rejected' }
+            : m
+        )
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    }
+  };
+
+  const handleEndRide = async () => {
+    console.log('handleEndRide called - token:', !!token, 'currentRequestId:', currentRequestId);
+    
+    if (!token || !currentRequestId) {
+      console.warn('Cannot end ride: missing token or requestId', { hasToken: !!token, requestId: currentRequestId });
+      // Reset state anyway to unblock UI
+      setActiveConnection(null);
+      setScreenState('idle');
+      setSelectedDestination(null);
+      setRouteDetails(null);
+      setMatches([]);
+      setCurrentRequestId(null);
+      return;
+    }
+    
+    try {
+      console.log('Calling cancelPoolingRequest with requestId:', currentRequestId);
+      await cancelPoolingRequest(token, currentRequestId);
+      console.log('Successfully cancelled pooling request');
+    } catch (error: any) {
+      console.error('Error ending ride:', error);
+      Alert.alert('Error', error.message);
+    } finally {
+      // Always reset state regardless of API success/failure
+      console.log('Resetting state after end ride');
+      setActiveConnection(null);
+      setScreenState('idle');
+      setSelectedDestination(null);
+      setRouteDetails(null);
+      setMatches([]);
+      setCurrentRequestId(null);
+      if (isMapReady.current && webViewRef.current) {
+        webViewRef.current.injectJavaScript('window.clearRoute(); true;');
+        webViewRef.current.injectJavaScript('window.clearDestinationMarker(); true;');
+      }
+    }
+  };
+
+  const handleStartChat = () => {
+    if (!activeConnection) return;
+    
+    router.push({
+      pathname: '/(main)/chat',
+      params: {
+        connectionId: activeConnection.id.toString(),
+        partnerId: activeConnection.partner.id.toString(),
+        partnerName: activeConnection.partner.full_name,
+      },
+    });
+  };
+
+  const handleViewPartnerProfile = () => {
+    setShowPartnerProfile(true);
+  };
+
+  const handleContinueToActiveRide = () => {
+    setScreenState('active_ride');
+  };
+
+  // Removed useFocusEffect that was causing stale closure issues
+  // The component doesn't need to reset on focus since we're staying on the same tab
 
   useEffect(() => {
     if (match) {
@@ -198,11 +485,23 @@ export default function PoolingScreen() {
         return [...prevMatches, match];
       });
       setScreenState('results');
-      disconnect();
+      // Keep WebSocket connected for real-time notifications
     }
-  }, [match, disconnect]);
+  }, [match]);
 
   // --- RENDER ---
+  
+  // Show ActiveRideView when there's an active connection
+  if (screenState === 'active_ride' && activeConnection) {
+    return (
+      <ActiveRideView
+        connection={activeConnection}
+        onEndRide={handleEndRide}
+        onStartChat={handleStartChat}
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
       <OlaMapWebView
@@ -250,7 +549,20 @@ export default function PoolingScreen() {
         visible={screenState === 'results'}
         matches={matches}
         onNewSearch={handleNewSearch}
+        onSendRequest={handleSendRequest}
+        onApprove={handleApprove}
+        onReject={handleReject}
       />
+      
+      {activeConnection && (
+        <ActiveConnectionModal
+          visible={screenState === 'connection_modal'}
+          partner={activeConnection.partner}
+          onStartChat={handleStartChat}
+          onEndRide={handleEndRide}
+          onViewFullProfile={handleContinueToActiveRide}
+        />
+      )}
     </View>
   );
 }

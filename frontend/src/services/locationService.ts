@@ -53,9 +53,11 @@ export const getAddressFromCoords = async ({ latitude, longitude }: LatLng): Pro
 export const getAutocompleteSuggestions = async (query: string): Promise<AutocompleteSuggestion[]> => {
   if (!query || query.length < 3) return [];
   try {
+    console.log('Calling autocomplete API with query:', query);
     const response = await axios.get(OLA_AUTOCOMPLETE_API_URL, {
       params: { input: query, api_key: OLA_MAPS_API_KEY },
     });
+    console.log('Autocomplete API response:', response.data);
     return response.data?.predictions || [];
   } catch (error: any) {
     console.error('Autocomplete failed:', error.response?.data || error.message);
@@ -66,15 +68,40 @@ export const getAutocompleteSuggestions = async (query: string): Promise<Autocom
 // --- Function 3: THE CRITICAL MISSING PIECE ---
 // This function takes a place_id and returns the full details, including coordinates.
 export const getPlaceDetails = async (placeId: string): Promise<PlaceDetails | null> => {
-  if (!placeId) return null;
+  if (!placeId) {
+    console.error('getPlaceDetails called with empty place_id');
+    return null;
+  }
   try {
+    console.log('Calling place details API with place_id:', placeId);
     const response = await axios.get(OLA_PLACES_DETAILS_API_URL, {
       params: {
         place_id: placeId,
         api_key: OLA_MAPS_API_KEY,
       },
     });
-    return response.data?.result || null;
+    console.log('Place details API response status:', response.data?.status);
+    console.log('Place details API full response:', JSON.stringify(response.data, null, 2));
+    
+    const result = response.data?.result;
+    if (!result) {
+      console.error('No result in place details response');
+      return null;
+    }
+    
+    // Validate that we have the required geometry data
+    if (!result.geometry || !result.geometry.location) {
+      console.error('Missing geometry or location in result:', result);
+      return null;
+    }
+    
+    console.log('Successfully parsed place details:', {
+      name: result.name,
+      lat: result.geometry.location.lat,
+      lng: result.geometry.location.lng
+    });
+    
+    return result;
   } catch (error: any) {
     console.error('Get place details failed:', error.response?.data || error.message);
     return null;

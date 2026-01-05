@@ -1,8 +1,10 @@
 # backend/app/services/pooling_service.py
 
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, and_, func
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
+from fastapi import HTTPException
 
 # --- Local Imports ---
 from app.models import user_model, pooling_model
@@ -18,6 +20,7 @@ import httpx
 START_LOCATION_RADIUS_METERS = 5000  # 5km
 DESTINATION_RADIUS_METERS = 5000 # 5km
 ACTIVE_TIMEOUT_MINUTES = 15
+MAX_PENDING_CONNECTIONS = 5
 OLA_DISTANCE_MATRIX_BASIC_API_URL = "https://api.olamaps.io/routing/v1/distanceMatrix/basic"
 
 async def _get_distances_from_ola(origin: tuple, destinations: List[tuple]) -> List[float | None]:
@@ -159,28 +162,317 @@ async def find_matches(db: Session, new_request: pooling_model.PoolingRequest) -
         if distance is not None and distance <= DESTINATION_RADIUS_METERS:
             print(f"VALID MATCH FOUND: Request {new_request.id} <--> Request {matched_request.id}")
 
-            # 1. Add the objects to the session to track changes
+            # Update both requests to MATCHED status (not CONNECTED yet - that happens on approval)
             db.add(matched_request)
             db.add(new_request)
-
-            # 2. Update statuses
             matched_request.status = pooling_model.PoolingRequestStatus.MATCHED
             new_request.status = pooling_model.PoolingRequestStatus.MATCHED
-            
-            # 3. Commit the transaction to the database
             db.commit()
             
-            # 4. Prepare and send WebSocket notification
+            # Prepare and send WebSocket notification with enriched user data
+            matched_user_data = pooling_schema.MatchedUser(
+                id=new_request.user.id,
+                full_name=new_request.user.full_name,
+                phone_number=None,  # Hide until connected
+                email=None,  # Hide until connected
+                year_of_study=None,  # Hide until connected
+                bio=None,  # Hide until connected
+                profile_image_url=None,
+                request_id=new_request.id,
+                connection_status='none',
+                connection_id=None
+            )
+            
             message_for_waiting_user = {
                 "type": "match_found",
-                "match": pooling_schema.MatchedUser.from_orm(new_request.user).model_dump()
+                "match": matched_user_data.model_dump()
             }
             await manager.send_personal_message(message_for_waiting_user, matched_request.user.id)
 
-            # 5. Prepare HTTP response
-            matched_users_for_http_response.append(matched_request.user)
+            # Prepare HTTP response - return the matched REQUEST (not just user)
+            matched_users_for_http_response.append(matched_request)
             
-            break 
+            # Don't break - allow multiple matches
     
     print(f"--- Search Complete. Returning {len(matched_users_for_http_response)} matches. ---")
     return matched_users_for_http_response
+
+
+# ==================== CONNECTION MANAGEMENT ====================
+
+async def send_connection_request(
+    db: Session, 
+    sender_request_id: int, 
+    receiver_request_id: int,
+    sender_user: user_model.User
+) -> pooling_model.PoolingConnection:
+    """
+    Sends a connection request from one pooling request to another.
+    Enforces max pending connections limit.
+    """
+    # Validate requests exist and are in MATCHED status
+    sender_request = db.query(pooling_model.PoolingRequest).filter(
+        pooling_model.PoolingRequest.id == sender_request_id
+    ).first()
+    
+    receiver_request = db.query(pooling_model.PoolingRequest).filter(
+        pooling_model.PoolingRequest.id == receiver_request_id
+    ).first()
+    
+    if not sender_request or not receiver_request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if sender_request.user_id != sender_user.id:
+        raise HTTPException(status_code=403, detail="Not your request")
+    
+    if sender_request.status not in [pooling_model.PoolingRequestStatus.MATCHED, pooling_model.PoolingRequestStatus.ACTIVE]:
+        raise HTTPException(status_code=400, detail="Request is not active or matched")
+    
+    # Check if connection already exists
+    existing_connection = db.query(pooling_model.PoolingConnection).filter(
+        or_(
+            and_(
+                pooling_model.PoolingConnection.sender_request_id == sender_request_id,
+                pooling_model.PoolingConnection.receiver_request_id == receiver_request_id
+            ),
+            and_(
+                pooling_model.PoolingConnection.sender_request_id == receiver_request_id,
+                pooling_model.PoolingConnection.receiver_request_id == sender_request_id
+            )
+        )
+    ).first()
+    
+    if existing_connection:
+        if existing_connection.status == pooling_model.PoolingConnectionStatus.PENDING:
+            raise HTTPException(status_code=400, detail="Connection request already exists")
+        elif existing_connection.status == pooling_model.PoolingConnectionStatus.APPROVED:
+            raise HTTPException(status_code=400, detail="Already connected")
+        # If rejected, allow sending again
+    
+    # Check pending connections limit for sender
+    pending_count = db.query(func.count(pooling_model.PoolingConnection.id)).filter(
+        pooling_model.PoolingConnection.sender_request_id == sender_request_id,
+        pooling_model.PoolingConnection.status == pooling_model.PoolingConnectionStatus.PENDING
+    ).scalar()
+    
+    if pending_count >= MAX_PENDING_CONNECTIONS:
+        raise HTTPException(status_code=400, detail=f"Maximum {MAX_PENDING_CONNECTIONS} pending connections reached")
+    
+    # Create connection
+    connection = pooling_model.PoolingConnection(
+        sender_request_id=sender_request_id,
+        receiver_request_id=receiver_request_id,
+        status=pooling_model.PoolingConnectionStatus.PENDING
+    )
+    
+    db.add(connection)
+    db.commit()
+    db.refresh(connection)
+    
+    # Send WebSocket notification to receiver
+    receiver_user = receiver_request.user
+    receiver_message = {
+        "type": "connection_request_received",
+        "connection_id": connection.id,
+        "from_user": {
+            "id": sender_user.id,
+            "full_name": sender_user.full_name,
+            "request_id": sender_request_id
+        }
+    }
+    await manager.send_personal_message(receiver_message, receiver_user.id)
+    
+    # Send WebSocket notification to sender (to update their UI)
+    sender_message = {
+        "type": "connection_request_sent",
+        "connection_id": connection.id,
+        "to_user": {
+            "id": receiver_user.id,
+            "full_name": receiver_user.full_name,
+            "request_id": receiver_request_id
+        }
+    }
+    await manager.send_personal_message(sender_message, sender_user.id)
+    
+    return connection
+
+
+async def respond_to_connection(
+    db: Session,
+    connection_id: int,
+    action: str,
+    responder_user: user_model.User
+) -> pooling_model.PoolingConnection:
+    """
+    Approve or reject a connection request.
+    If approved, updates both requests to CONNECTED status.
+    """
+    connection = db.query(pooling_model.PoolingConnection).options(
+        joinedload(pooling_model.PoolingConnection.sender_request).joinedload(pooling_model.PoolingRequest.user),
+        joinedload(pooling_model.PoolingConnection.receiver_request).joinedload(pooling_model.PoolingRequest.user)
+    ).filter(
+        pooling_model.PoolingConnection.id == connection_id
+    ).first()
+    
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    
+    if connection.receiver_request.user_id != responder_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to respond")
+    
+    if connection.status != pooling_model.PoolingConnectionStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Connection already responded to")
+    
+    # Update connection status
+    if action == "approve":
+        connection.status = pooling_model.PoolingConnectionStatus.APPROVED
+        connection.responded_at = datetime.utcnow()
+        
+        # Update both requests to CONNECTED
+        connection.sender_request.status = pooling_model.PoolingRequestStatus.CONNECTED
+        connection.receiver_request.status = pooling_model.PoolingRequestStatus.CONNECTED
+        
+        sender_user = connection.sender_request.user
+        
+        # Notify sender via WebSocket
+        sender_message = {
+            "type": "connection_approved",
+            "connection_id": connection.id,
+            "user_request_id": connection.sender_request_id,
+            "partner": {
+                "id": responder_user.id,
+                "full_name": responder_user.full_name,
+                "phone_number": responder_user.profile.phone_number if responder_user.profile else None,
+                "email": responder_user.email,
+                "year_of_study": responder_user.profile.year_of_study if responder_user.profile else None,
+                "bio": responder_user.profile.bio if responder_user.profile else None,
+                "request_id": connection.receiver_request_id
+            }
+        }
+        await manager.send_personal_message(sender_message, sender_user.id)
+        
+        # Notify receiver (approver) via WebSocket with sender's info
+        receiver_message = {
+            "type": "connection_approved",
+            "connection_id": connection.id,
+            "user_request_id": connection.receiver_request_id,
+            "partner": {
+                "id": sender_user.id,
+                "full_name": sender_user.full_name,
+                "phone_number": sender_user.profile.phone_number if sender_user.profile else None,
+                "email": sender_user.email,
+                "year_of_study": sender_user.profile.year_of_study if sender_user.profile else None,
+                "bio": sender_user.profile.bio if sender_user.profile else None,
+                "request_id": connection.sender_request_id
+            }
+        }
+        await manager.send_personal_message(receiver_message, responder_user.id)
+        
+    elif action == "reject":
+        connection.status = pooling_model.PoolingConnectionStatus.REJECTED
+        connection.responded_at = datetime.utcnow()
+        
+        # Notify sender via WebSocket
+        message = {
+            "type": "connection_rejected",
+            "connection_id": connection.id,
+            "by_user": {
+                "id": responder_user.id,
+                "full_name": responder_user.full_name
+            }
+        }
+        await manager.send_personal_message(message, connection.sender_request.user_id)
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'approve' or 'reject'")
+    
+    db.commit()
+    db.refresh(connection)
+    
+    return connection
+
+
+def get_active_connection(db: Session, user_id: int) -> Optional[pooling_model.PoolingConnection]:
+    """
+    Gets the active (approved) connection for a user.
+    Excludes cancelled connections and cancelled requests.
+    """
+    user_request = db.query(pooling_model.PoolingRequest).filter(
+        pooling_model.PoolingRequest.user_id == user_id,
+        pooling_model.PoolingRequest.status == pooling_model.PoolingRequestStatus.CONNECTED
+    ).first()
+    
+    if not user_request:
+        return None
+    
+    connection = db.query(pooling_model.PoolingConnection).options(
+        joinedload(pooling_model.PoolingConnection.sender_request).joinedload(pooling_model.PoolingRequest.user).joinedload(user_model.User.profile),
+        joinedload(pooling_model.PoolingConnection.receiver_request).joinedload(pooling_model.PoolingRequest.user).joinedload(user_model.User.profile)
+    ).filter(
+        pooling_model.PoolingConnection.status == pooling_model.PoolingConnectionStatus.APPROVED,
+        or_(
+            pooling_model.PoolingConnection.sender_request_id == user_request.id,
+            pooling_model.PoolingConnection.receiver_request_id == user_request.id
+        )
+    ).first()
+    
+    return connection
+
+
+async def cancel_pooling_request(db: Session, request_id: int, user: user_model.User):
+    """
+    Cancels a pooling request and notifies connected partners.
+    """
+    request = db.query(pooling_model.PoolingRequest).filter(
+        pooling_model.PoolingRequest.id == request_id,
+        pooling_model.PoolingRequest.user_id == user.id
+    ).first()
+    
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # If connected, notify the partner and close the connection
+    if request.status == pooling_model.PoolingRequestStatus.CONNECTED:
+        connection = db.query(pooling_model.PoolingConnection).filter(
+            pooling_model.PoolingConnection.status == pooling_model.PoolingConnectionStatus.APPROVED,
+            or_(
+                pooling_model.PoolingConnection.sender_request_id == request_id,
+                pooling_model.PoolingConnection.receiver_request_id == request_id
+            )
+        ).first()
+        
+        if connection:
+            # Find partner
+            partner_request = connection.sender_request if connection.receiver_request_id == request_id else connection.receiver_request
+            
+            # Notify partner
+            message = {
+                "type": "ride_cancelled",
+                "by_user": {
+                    "id": user.id,
+                    "full_name": user.full_name
+                },
+                "message": f"{user.full_name} cancelled the ride"
+            }
+            await manager.send_personal_message(message, partner_request.user_id)
+            
+            # Reset partner's request status to CANCELLED (request lifecycle)
+            partner_request.status = pooling_model.PoolingRequestStatus.CANCELLED
+            
+            # Close the connection by marking it rejected on both sides
+            connection.status = pooling_model.PoolingConnectionStatus.REJECTED
+    
+    # Cancel all pending connections
+    db.query(pooling_model.PoolingConnection).filter(
+        or_(
+            pooling_model.PoolingConnection.sender_request_id == request_id,
+            pooling_model.PoolingConnection.receiver_request_id == request_id
+        ),
+        pooling_model.PoolingConnection.status == pooling_model.PoolingConnectionStatus.PENDING
+    ).update({"status": pooling_model.PoolingConnectionStatus.REJECTED})
+    
+    # Cancel the request
+    request.status = pooling_model.PoolingRequestStatus.CANCELLED
+    db.commit()
+    
+    return {"message": "Request cancelled successfully"}

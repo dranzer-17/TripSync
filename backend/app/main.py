@@ -6,7 +6,51 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from app.models import user_model, pooling_model, profile_model, service_model
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+
 load_dotenv()
+
+# Configure logging
+log_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(log_dir, exist_ok=True)
+
+# Create formatters
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# File handler for all logs
+file_handler = RotatingFileHandler(
+    os.path.join(log_dir, "app.log"),
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5
+)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+
+# File handler for errors only
+error_handler = RotatingFileHandler(
+    os.path.join(log_dir, "error.log"),
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(formatter)
+
+# Configure root logger
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[file_handler, error_handler]
+)
+
+# Also add console handler for development
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+logging.getLogger().addHandler(console_handler)
 # This function will create the database tables.
 def create_db_and_tables():
     Base.metadata.create_all(bind=engine)

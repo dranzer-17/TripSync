@@ -1,20 +1,26 @@
 # backend/app/services/user_service.py
 
+import bcrypt
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
 
 from app.models import user_model
 from app.schemas import user_schema
 
-# Setup the password hashing context
-# This tells passlib to use the bcrypt algorithm
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Predefined list of colleges
+ALLOWED_COLLEGES = [
+    "DJSCE",
+    "SPIT",
+    "VJTI",
+    "KJ SOMAIYA COLLEGE OF ENGINEERING",
+    "THAKUR COLLEGE OF ENGINEERING",
+    "ST. FRANCIS COLLEGE OF ENGINEERING"
+]
 
 
 # --- ADD THIS NEW FUNCTION ---
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Checks if a plain text password matches a hashed password."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def get_user_by_email(db: Session, email: str):
     """Fetches a user from the database by their email address."""
@@ -37,8 +43,12 @@ def get_or_create_college(db: Session, college_name: str):
 
 def create_user(db: Session, user: user_schema.UserCreate):
     """Creates a new user in the database."""
-    # Hash the user's password before storing it
-    hashed_password = pwd_context.hash(user.password)
+    # Validate college name
+    if user.college_name not in ALLOWED_COLLEGES:
+        raise ValueError(f"Invalid college name. Must be one of: {', '.join(ALLOWED_COLLEGES)}")
+    
+    # Hash the password using bcrypt directly
+    hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     # Find or create the college for the user
     college = get_or_create_college(db, college_name=user.college_name)

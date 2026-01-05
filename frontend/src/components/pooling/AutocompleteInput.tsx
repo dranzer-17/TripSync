@@ -27,8 +27,10 @@ export default function AutocompleteInput({
           return;
         }
         setIsLoading(true);
+        console.log('Fetching suggestions for:', text);
         try {
           const results = await getAutocompleteSuggestions(text);
+          console.log('Suggestions received:', results.length, 'results');
           onSuggestionsChange(results); // Pass results to parent
         } catch (error) {
           console.error('Error fetching autocomplete suggestions:', error);

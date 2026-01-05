@@ -118,7 +118,16 @@ export default function MainLayout() {
           tabBarIcon: ({ size, focused }) => (
             <TabIcon focused={focused} iconName="car-sport" size={size} />
           ),
-          // Add individual screen transitions
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="chats"
+        options={{
+          title: 'Chats',
+          tabBarIcon: ({ size, focused }) => (
+            <TabIcon focused={focused} iconName="chatbubbles" size={size} />
+          ),
           headerShown: false,
         }}
       />
@@ -139,6 +148,13 @@ export default function MainLayout() {
           tabBarIcon: ({ size, focused }) => (
             <TabIcon focused={focused} iconName="person" size={size} />
           ),
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          href: null, // Hide from tabs
           headerShown: false,
         }}
       />

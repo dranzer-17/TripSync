@@ -1,12 +1,22 @@
 // src/app/(auth)/register.tsx
 
 import React, { useState } from 'react';
-import { StyleSheet, Alert, TouchableOpacity } from 'react-native';
-import { Text, TextInput, Button } from 'react-native-paper';
+import { StyleSheet, Alert, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput, Button, Menu } from 'react-native-paper';
 import { Link, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenWrapper from '../../components/ScreenWrapper';
 import { register } from '../../services/authService';
+
+// List of allowed colleges (must match backend)
+const ALLOWED_COLLEGES = [
+  'DJSCE',
+  'SPIT',
+  'VJTI',
+  'KJ SOMAIYA COLLEGE OF ENGINEERING',
+  'THAKUR COLLEGE OF ENGINEERING',
+  'ST. FRANCIS COLLEGE OF ENGINEERING',
+];
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -16,6 +26,9 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [collegeName, setCollegeName] = useState('');
+  
+  // State for dropdown menu
+  const [menuVisible, setMenuVisible] = useState(false);
   
   // State for loading indicator on the button
   const [loading, setLoading] = useState(false);
@@ -95,14 +108,40 @@ export default function RegisterScreen() {
         onChangeText={setPassword}
         secureTextEntry
       />
-      <TextInput
-        label="College Name"
-        mode="outlined"
-        style={styles.input}
-        value={collegeName}
-        onChangeText={setCollegeName}
-        autoCapitalize="words"
-      />
+      
+      {/* College Dropdown */}
+      <View style={styles.dropdownContainer}>
+        <Menu
+          visible={menuVisible}
+          onDismiss={() => setMenuVisible(false)}
+          anchor={
+            <TouchableOpacity onPress={() => setMenuVisible(true)}>
+              <TextInput
+                label="College Name"
+                mode="outlined"
+                style={styles.input}
+                value={collegeName}
+                editable={false}
+                right={<TextInput.Icon icon="chevron-down" />}
+                placeholder="Select your college"
+              />
+            </TouchableOpacity>
+          }
+          contentStyle={styles.menuContent}
+        >
+          {ALLOWED_COLLEGES.map((college) => (
+            <Menu.Item
+              key={college}
+              onPress={() => {
+                setCollegeName(college);
+                setMenuVisible(false);
+              }}
+              title={college}
+              titleStyle={styles.menuItem}
+            />
+          ))}
+        </Menu>
+      </View>
 
       {/* Connect Button to the handler function and loading state */}
       <Button 
@@ -136,6 +175,16 @@ const styles = StyleSheet.create({
     },
     input: {
         marginBottom: 15,
+    },
+    dropdownContainer: {
+        marginBottom: 15,
+    },
+    menuContent: {
+        backgroundColor: '#FFFFFF',
+        maxHeight: 300,
+    },
+    menuItem: {
+        fontSize: 14,
     },
     button: {
         marginTop: 10,

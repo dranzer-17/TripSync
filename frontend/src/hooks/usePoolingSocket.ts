@@ -3,17 +3,31 @@
 import { useState, useEffect, useRef } from 'react';
 import { MatchedUser } from '../services/poolingService';
 import { API_BASE_URL } from '../constants/config';
+import { Alert } from 'react-native';
 
-// Define the shape of the message we expect from the server
+// Define the shape of messages we expect from the server
 interface WebSocketMessage {
-  type: 'match_found';
-  match: MatchedUser;
+  type: 'match_found' | 'connection_request_received' | 'connection_request_sent' | 'connection_approved' | 'connection_rejected' | 'ride_cancelled' | 'chat_message';
+  match?: MatchedUser;
+  connection_id?: number;
+  from_user?: Partial<MatchedUser>;
+  to_user?: Partial<MatchedUser>;
+  partner?: Partial<MatchedUser>;
+  by_user?: Partial<MatchedUser>;
+  message?: string;
+  // Chat message fields
+  sender_id?: number;
+  sender_name?: string;
+  content?: string;
+  created_at?: string;
 }
 
 export function usePoolingSocket(token: string | null) {
   const [isConnected, setIsConnected] = useState(false);
   const [match, setMatch] = useState<MatchedUser | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionUpdate, setConnectionUpdate] = useState<{ type: string; data: any } | null>(null);
+  const [chatMessage, setChatMessage] = useState<WebSocketMessage | null>(null);
   
   // useRef is used to hold a reference to the WebSocket object itself.
   // This prevents it from being recreated on every component re-render.
@@ -49,8 +63,65 @@ export function usePoolingSocket(token: string | null) {
       console.log('Received message from server:', event.data);
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
-        if (message.type === 'match_found') {
-          setMatch(message.match); // A match has been found!
+        
+        switch (message.type) {
+          case 'match_found':
+            if (message.match) {
+              setMatch(message.match); // A match has been found!
+            }
+            break;
+            
+          case 'connection_request_sent':
+            // We sent a request successfully - update UI
+            console.log('Request sent notification:', message);
+            setConnectionUpdate({ type: 'request_sent', data: message });
+            break;
+            
+          case 'connection_request_received':
+            // Someone sent us a connection request
+            Alert.alert(
+              '🚗 Connection Request',
+              `${message.from_user?.full_name} wants to pool with you!`,
+              [{ text: 'View' }]
+            );
+            setConnectionUpdate({ type: 'request_received', data: message });
+            break;
+            
+          case 'connection_approved':
+            // Connection approved - both users get partner details
+            Alert.alert(
+              '✅ Connection Approved!',
+              `You are now connected with ${message.partner?.full_name}. You can start your ride!`,
+              [{ text: 'Great!' }]
+            );
+            setConnectionUpdate({ type: 'approved', data: message });
+            break;
+            
+          case 'connection_rejected':
+            // Our request was rejected
+            Alert.alert(
+              'Request Declined',
+              `${message.by_user?.full_name} declined your connection request.`,
+              [{ text: 'OK' }]
+            );
+            setConnectionUpdate({ type: 'rejected', data: message });
+            break;
+            
+          case 'ride_cancelled':
+            // Partner cancelled the ride
+            Alert.alert(
+              'Ride Cancelled',
+              message.message || 'Your pooling partner cancelled the ride.',
+              [{ text: 'OK' }]
+            );
+            setConnectionUpdate({ type: 'cancelled', data: message });
+            break;
+            
+          case 'chat_message':
+            // Received a chat message
+            console.log('Chat message received:', message);
+            setChatMessage(message);
+            break;
         }
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e);
@@ -77,6 +148,20 @@ export function usePoolingSocket(token: string | null) {
     }
   };
 
+  // This function clears the match state
+  const clearMatch = () => {
+    setMatch(null);
+  };
+
+  // Send a message through WebSocket
+  const sendWebSocketMessage = (message: any) => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify(message));
+    } else {
+      console.error('WebSocket is not connected');
+    }
+  };
+
   // This useEffect ensures that if the component using the hook unmounts,
   // the WebSocket connection is cleanly closed.
   useEffect(() => {
@@ -85,5 +170,15 @@ export function usePoolingSocket(token: string | null) {
     };
   }, []);
 
-  return { isConnected, match, error, connect, disconnect };
+  return { 
+    isConnected, 
+    match, 
+    error, 
+    connectionUpdate, 
+    chatMessage,
+    connect, 
+    disconnect, 
+    clearMatch,
+    sendWebSocketMessage
+  };
 }

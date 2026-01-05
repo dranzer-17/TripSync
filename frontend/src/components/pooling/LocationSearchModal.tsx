@@ -29,8 +29,10 @@ export default function LocationSearchModal({
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
 
   const handleSuggestionPress = (suggestion: AutocompleteSuggestion) => {
+    console.log('Suggestion pressed:', suggestion);
     setSuggestions([]);
     onPlaceSelected(suggestion);
+    // Modal will be closed by the parent (handlePlaceSelected calls setIsSearchModalVisible(false))
   };
 
   return (

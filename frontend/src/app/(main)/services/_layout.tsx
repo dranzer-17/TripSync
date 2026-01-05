@@ -1,5 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
-import { useTheme, IconButton } from 'react-native-paper';
+import { useTheme } from 'react-native-paper';
+import { TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function ServicesLayout() {
   const theme = useTheme();
@@ -8,9 +10,10 @@ export default function ServicesLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.surface }, // Use theme surface (white)
-        headerTintColor: theme.colors.onSurface, // Use theme onSurface (dark)
+        headerStyle: { backgroundColor: theme.colors.surface },
+        headerTintColor: theme.colors.onSurface,
         headerTitleStyle: { fontWeight: 'bold' },
+        headerBackTitleVisible: false, // Hides "Back" text on iOS
       }}
     >
       <Stack.Screen
@@ -18,11 +21,19 @@ export default function ServicesLayout() {
         options={{
           title: 'Community Services',
           headerRight: () => (
-            <IconButton
-              icon="view-dashboard-outline"
-              iconColor={theme.colors.onSurface} // Use theme onSurface color
+            <TouchableOpacity
               onPress={() => router.push('/services/dashboard' as any)}
-            />
+              style={styles.iconButton}
+              activeOpacity={0.7}
+            >
+              <View style={styles.iconContainer}>
+                <Ionicons 
+                  name="grid-outline" 
+                  size={20} 
+                  color="white"
+                />
+              </View>
+            </TouchableOpacity>
           ),
         }}
       />
@@ -41,9 +52,24 @@ export default function ServicesLayout() {
       />
       <Stack.Screen 
         name="applicants/[id]" 
-        options={{ title: 'Applicants' }} 
+        options={{ 
+          title: 'Applicants',
+          headerBackVisible: true, // Force back button to show
+        }} 
       />
     </Stack>
-
   );
 }
+
+const styles = StyleSheet.create({
+  iconButton: {
+    marginRight: 12,
+  },
+  iconContainer: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#7C3AED',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
